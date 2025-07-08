@@ -1,0 +1,17 @@
+[package]
+name = "unis-macros"
+description = "unis框架所涉宏定义。"
+
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn.workspace = true
+quote.workspace = true
+uuid.workspace = true

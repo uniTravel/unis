@@ -1,6 +1,6 @@
 [package]
-name = "unis"
-description = "轻量级CQRS框架。"
+name = "unis-kafka"
+description = "unis框架Kafka实现。"
 
 version.workspace = true
 edition.workspace = true
@@ -9,6 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+unis = { path = "../unis" }
 unis-macros = { path = "../unis-macros" }
 uuid.workspace = true
 tokio.workspace = true
@@ -16,3 +17,4 @@ tracing.workspace = true
 serde.workspace = true
 enum_dispatch.workspace = true
 validator.workspace = true
+rdkafka.workspace = true

@@ -1,0 +1,22 @@
+[package]
+name = "examples"
+version = "0.0.0"
+publish = false
+
+edition.workspace = true
+
+[dev-dependencies]
+unis = { path = "../unis" }
+unis-macros = { path = "../unis-macros" }
+uuid.workspace = true
+tracing.workspace = true
+validator.workspace = true
+enum_dispatch.workspace = true
+
+[[example]]
+name = "agg"
+path = "aggregate.rs"
+
+[[example]]
+name = "com"
+path = "command.rs"
