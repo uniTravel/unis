@@ -1,4 +1,5 @@
 use agg::Note;
+use std::any::type_name;
 use unis::domain::Aggregate;
 use uuid::Uuid;
 
@@ -7,17 +8,20 @@ mod agg {
     use unis_macros::aggregate;
     use uuid::Uuid;
 
-    #[aggregate(Aggregate)]
+    #[aggregate]
     pub struct Note {
-        name: String,
+        pub name: String,
     }
-
 }
 
 fn main() {
     let mut a = Note::new(Uuid::new_v4());
+    println!("{:#?}", a);
     a.next();
-    println!("hello {:#?}", a);
-    let f = a.revision.wrapping_add(1);
-    println!("{f}");
+    a.next();
+    println!("{:#?}", a.revision());
+    a.name = "hello".to_string();
+    println!("{:#?}", a);
+    let t = type_name::<Note>();
+    println!("{:#?}", t);
 }

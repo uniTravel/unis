@@ -15,6 +15,5 @@ uuid.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 serde.workspace = true
-enum_dispatch.workspace = true
 validator.workspace = true
 rdkafka.workspace = true

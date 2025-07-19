@@ -13,6 +13,6 @@ unis-macros = { path = "../unis-macros" }
 uuid.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-serde.workspace = true
-enum_dispatch.workspace = true
+bincode.workspace = true
 validator.workspace = true
+thiserror.workspace = true

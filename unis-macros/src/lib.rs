@@ -37,7 +37,7 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     if let syn::Fields::Named(ref mut fields) = input.fields {
         fields.named.insert(0, syn::parse_quote! (id: ::uuid::Uuid));
-        fields.named.insert(1, syn::parse_quote!(pub revision: u64));
+        fields.named.insert(1, syn::parse_quote!(revision: u64));
     } else {
         panic!("#[aggregate]仅支持具名字段的结构体");
     }
@@ -71,6 +71,8 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
             fn next(&mut self) {
                 self.revision = self.revision.wrapping_add(1);
             }
+            fn id(&self) -> ::uuid::Uuid { self.id }
+            fn revision(&self) -> u64 { self.revision }
         }
     };
 
