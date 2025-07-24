@@ -57,7 +57,7 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
-        #[derive(Debug)]
+        #[derive(Debug, Clone)]
         #input
 
         impl Aggregate for #struct_name {

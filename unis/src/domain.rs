@@ -1,7 +1,5 @@
-use std::marker::PhantomData;
-
-use crate::errors::DomainError;
-use bincode::config::Configuration;
+use crate::{BINCODE_CONFIG, errors::DomainError};
+use bincode::Encode;
 use uuid::Uuid;
 
 pub trait Aggregate {
@@ -18,32 +16,18 @@ pub trait Event {
 }
 
 pub trait Command {
-    type A: Aggregate;
-    type E: Event;
+    type A: Aggregate + Clone;
+    type E: Event<A = Self::A> + Encode;
 
     fn check(&self, agg: &Self::A) -> Result<(), DomainError>;
-    fn execute(self, agg: &Self::A) -> Self::E;
-}
-
-pub enum Work<A, F>
-where
-    A: Aggregate,
-    F: FnOnce(A) -> Result<(A, Vec<u8>), DomainError>,
-{
-    Create(F),
-    Apply(F),
-    _Marker(PhantomData<A>),
-}
-
-pub trait Handler {
-    type A: Aggregate;
-    type F: FnOnce(Self::A) -> Result<(Self::A, Vec<u8>), DomainError>;
-
-    fn handle(
-        &self,
-        cfg_bincode: Configuration,
-        com_data: Vec<u8>,
-    ) -> Result<Work<Self::A, Self::F>, DomainError>;
+    fn execute(&self, agg: &Self::A) -> Self::E;
+    fn process(&self, oa: Self::A) -> Result<(Self::A, Self::A, Vec<u8>), DomainError> {
+        self.check(&oa)?;
+        let evt = self.execute(&oa);
+        let evt_data = bincode::encode_to_vec(&evt, BINCODE_CONFIG)?;
+        let na = evt.apply(oa.clone());
+        Ok((oa, na, evt_data))
+    }
 }
 
 pub trait Replayer {

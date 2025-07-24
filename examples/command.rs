@@ -1,11 +1,13 @@
 use crate::agg::{ChangeNote, NoteCommand};
 use agg::CreateNote;
-use bincode::config;
+use unis::BINCODE_CONFIG;
 
 mod agg {
     use bincode::{Decode, Encode};
+    use std::collections::HashMap;
     use unis::{
-        domain::{Aggregate, Command, Event},
+        BINCODE_CONFIG,
+        domain::{Aggregate, Command, Event, Replayer, Stream},
         errors::DomainError,
     };
     use unis_macros::aggregate;
@@ -71,10 +73,10 @@ mod agg {
             Ok(())
         }
 
-        fn execute(self, _agg: &Self::A) -> Self::E {
+        fn execute(&self, _agg: &Self::A) -> Self::E {
             Self::E {
-                title: self.title,
-                content: self.content,
+                title: self.title.clone(),
+                content: self.content.clone(),
                 grade: 1,
             }
         }
@@ -94,9 +96,9 @@ mod agg {
             Ok(())
         }
 
-        fn execute(self, _agg: &Self::A) -> Self::E {
+        fn execute(&self, _agg: &Self::A) -> Self::E {
             Self::E {
-                content: self.content,
+                content: self.content.clone(),
             }
         }
     }
@@ -108,32 +110,47 @@ mod agg {
         Change(ChangeNote) = 1,
     }
 
-    // impl Handler for NoteCommand {
-    //     type A = Note;
+    struct _Dispatcher<const ID: usize> {}
 
-    //     fn handle(
-    //         &self,
-    //         cfg_bincode: bincode::config::Configuration,
-    //         com_data: Vec<u8>,
-    //     ) -> Result<
-    //         (
-    //             Work,
-    //             impl FnOnce(Self::A) -> Result<(Self::A, Vec<u8>), DomainError>,
-    //         ),
-    //         DomainError,
-    //     > {
-    //         let (com, _) = bincode::decode_from_slice(&com_data, cfg_bincode)?;
-    //         match com {
-    //             NoteCommand::Create(create_note) => Ok((Work::Create, |agg| Ok((agg, com_data)))),
-    //             NoteCommand::Change(change_note) => {
-    //                 // (Work::Apply, |agg| {
-    //                 //     Ok((agg, com))
-    //                 // })
-    //                 todo!()
-    //             }
-    //         }
-    //     }
-    // }
+    impl<const ID: usize> _Dispatcher<ID> {
+        const fn _new() -> Self {
+            Self {}
+        }
+
+        #[inline(always)]
+        fn _execute<C, E>(&self, com: C, agg: Note) -> Result<(Note, Note, Vec<u8>), DomainError>
+        where
+            C: Command<A = Note, E = E>,
+            E: Event<A = Note>,
+        {
+            match ID {
+                0 => com.process(agg),
+                1 => com.process(agg),
+                _ => unsafe { std::hint::unreachable_unchecked() },
+            }
+        }
+    }
+
+    pub(crate) fn _dispatch<R, S>(
+        agg_id: Uuid,
+        com_data: Vec<u8>,
+        caches: &mut HashMap<Uuid, Note>,
+        replayer: &R,
+        stream: &S,
+        get_oa: fn(Uuid, &mut HashMap<Uuid, Note>, &R, &S) -> Result<Note, DomainError>,
+    ) -> Result<(Note, Note, Vec<u8>), DomainError>
+    where
+        R: Replayer<A = Note> + Send + 'static,
+        S: Stream<A = Note> + Send + 'static,
+    {
+        let (com, _): (NoteCommand, _) = bincode::decode_from_slice(&com_data, BINCODE_CONFIG)?;
+        match com {
+            NoteCommand::Create(com) => _Dispatcher::<0>::_new()._execute(com, Note::new(agg_id)),
+            NoteCommand::Change(com) => {
+                _Dispatcher::<1>::_new()._execute(com, get_oa(agg_id, caches, replayer, stream)?)
+            }
+        }
+    }
 
     #[repr(u8)]
     #[derive(Debug, Encode, Decode)]
@@ -153,11 +170,10 @@ fn main() {
     });
     println!("{:#?}", com1);
     println!("{:#?}", com2);
-    let config = config::standard();
-    let e1 = bincode::encode_to_vec(&com1, config).unwrap();
-    let e2 = bincode::encode_to_vec(&com2, config).unwrap();
-    let (d1, _): (NoteCommand, _) = bincode::decode_from_slice(&e1, config).unwrap();
+    let e1 = bincode::encode_to_vec(&com1, BINCODE_CONFIG).unwrap();
+    let e2 = bincode::encode_to_vec(&com2, BINCODE_CONFIG).unwrap();
+    let (d1, _): (NoteCommand, _) = bincode::decode_from_slice(&e1, BINCODE_CONFIG).unwrap();
     println!("{:#?}", d1);
-    let (d2, _): (NoteCommand, _) = bincode::decode_from_slice(&e2, config).unwrap();
+    let (d2, _): (NoteCommand, _) = bincode::decode_from_slice(&e2, BINCODE_CONFIG).unwrap();
     println!("{:#?}", d2);
 }

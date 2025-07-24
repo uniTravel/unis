@@ -57,10 +57,10 @@ mod agg {
             Ok(())
         }
 
-        fn execute(self, _agg: &Self::A) -> Self::E {
+        fn execute(&self, _agg: &Self::A) -> Self::E {
             Self::E {
-                title: self.title,
-                content: self.content,
+                title: self.title.clone(),
+                content: self.content.clone(),
                 grade: 1,
             }
         }

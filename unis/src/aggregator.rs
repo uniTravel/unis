@@ -1,9 +1,11 @@
-use crate::domain::{Aggregate, Handler, Replayer, Stream, Work};
+use crate::domain::{Aggregate, Replayer, Stream};
 use crate::errors::DomainError;
 use crate::pool::{OneshotPool, PooledSender};
-use bincode::config;
-use std::collections::HashSet;
-use std::{collections::HashMap, marker::PhantomData, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    marker::PhantomData,
+    time::Duration,
+};
 use tokio::{sync::mpsc, time};
 use uuid::Uuid;
 
@@ -16,24 +18,21 @@ enum Task {
     },
 }
 
-pub struct Aggregator<A, H, R, S>
+pub struct Aggregator<A, R, S>
 where
-    A: Aggregate + Send + Clone + 'static,
-    H: Handler<A = A> + Send + 'static,
+    A: Aggregate + Send + 'static,
     R: Replayer<A = A> + Send + 'static,
     S: Stream<A = A> + 'static,
 {
     tx: mpsc::Sender<Task>,
     pool: OneshotPool,
-    _marker_h: PhantomData<H>,
     _marker_r: PhantomData<R>,
     _marker_s: PhantomData<S>,
 }
 
-impl<A, H, R, S> Aggregator<A, H, R, S>
+impl<A, R, S> Aggregator<A, R, S>
 where
-    A: Aggregate + Send + Clone,
-    H: Handler<A = A> + Send,
+    A: Aggregate + Send,
     R: Replayer<A = A> + Send,
     S: Stream<A = A> + Send,
 {
@@ -44,47 +43,39 @@ where
         Ok(())
     }
 
-    fn apply(
-        apply: H::F,
-        caches: &mut HashMap<Uuid, A>,
-        ch: &mut HashSet<Uuid>,
-        stream: &S,
-        oa: A,
+    fn get_oa(
         agg_id: Uuid,
-        com_id: Uuid,
-        reply_tx: &mut PooledSender,
-    ) {
-        match apply(oa.clone()) {
-            Ok((mut na, evt_data)) => match stream.write(agg_id, com_id, na.revision(), evt_data) {
-                Ok(()) => {
-                    let _ = reply_tx.send(Ok(()));
-                    na.next();
-                    ch.insert(com_id);
-                    caches.insert(agg_id, na);
-                }
-                Err(err) => {
-                    let _ = reply_tx.send(Err(err));
-                    caches.insert(agg_id, oa);
-                }
-            },
-            Err(err) => {
-                let _ = reply_tx.send(Err(err));
-                caches.insert(agg_id, oa);
-            }
+        caches: &mut HashMap<Uuid, A>,
+        replayer: &R,
+        stream: &S,
+    ) -> Result<A, DomainError> {
+        if let Some(oa) = caches.remove(&agg_id) {
+            return Ok(oa);
+        } else {
+            let mut oa = A::new(agg_id);
+            let ds = stream.read(agg_id)?;
+            Self::replay(&replayer, ds, &mut oa)?;
+            Ok(oa)
         }
     }
 
     async fn task_processor(
         mut rx: mpsc::Receiver<Task>,
         interval: Duration,
-        handler: H,
+        dispatch: fn(
+            agg_id: Uuid,
+            com_data: Vec<u8>,
+            caches: &mut HashMap<Uuid, A>,
+            replayer: &R,
+            stream: &S,
+            get_oa: fn(Uuid, &mut HashMap<Uuid, A>, &R, &S) -> Result<A, DomainError>,
+        ) -> Result<(A, A, Vec<u8>), DomainError>,
         replayer: R,
         stream: S,
     ) {
         let mut interval = time::interval(interval);
         let mut caches: HashMap<Uuid, A> = HashMap::new();
         let mut ch: HashSet<Uuid> = HashSet::new();
-        let cfg_bincode = config::standard();
 
         loop {
             tokio::select! {
@@ -96,60 +87,25 @@ where
                                 let _ = reply_tx.send(Err(DomainError::Duplicate));
                             }
                             else {
-                                match handler.handle(cfg_bincode, com_data) {
-                                    Ok(work) => {
-                                        match work {
-                                            Work::Apply(apply) => {
-                                                if let Some(oa) = caches.remove(&agg_id) {
-                                                    Self::apply(apply, &mut caches, &mut ch, &stream, oa, agg_id, com_id, &mut reply_tx);
+                                match dispatch(agg_id, com_data, &mut caches, &replayer, &stream, Self::get_oa) {
+                                    Ok((oa, mut na, evt_data)) =>
+                                        match stream.write(agg_id, com_id, na.revision(), evt_data) {
+                                            Ok(()) => {
+                                                let _ = reply_tx.send(Ok(()));
+                                                na.next();
+                                                ch.insert(com_id);
+                                                caches.insert(agg_id, na);
+                                            }
+                                            Err(err) => {
+                                                let _ = reply_tx.send(Err(err));
+                                                if oa.revision() != u64::MAX {
+                                                    caches.insert(agg_id, oa);
                                                 }
-                                                else {
-                                                    let mut oa = A::new(agg_id);
-                                                    match stream.read(agg_id) {
-                                                        Ok(ds) => {
-                                                            match Self::replay(&replayer, ds, &mut oa) {
-                                                                Ok(()) => {
-                                                                    Self::apply(apply, &mut caches, &mut ch, &stream, oa, agg_id, com_id, &mut reply_tx);
-                                                                }
-                                                                Err(err) => {
-                                                                    let _ = reply_tx.send(Err(err));
-                                                                }
-                                                            }
-                                                        },
-                                                        Err(err) => {
-                                                            let _ = reply_tx.send(Err(err));
-                                                        },
-                                                    }
-
-                                                }
-                                            },
-                                            Work::Create(create) => {
-                                                let agg = A::new(agg_id);
-                                                match create(agg) {
-                                                    Ok((mut agg, evt_data)) => {
-                                                        match stream.write(agg_id, com_id, agg.revision(), evt_data){
-                                                            Ok(()) => {
-                                                                let _ = reply_tx.send(Ok(()));
-                                                                agg.next();
-                                                                ch.insert(com_id);
-                                                                caches.insert(agg_id, agg);
-                                                            },
-                                                            Err(err) => {
-                                                                let _ = reply_tx.send(Err(err));
-                                                            },
-                                                        }
-                                                    },
-                                                    Err(err) => {
-                                                        let _ = reply_tx.send(Err(err));
-                                                    },
-                                                };
-                                            },
-                                            _ => unreachable!(),
+                                            }
                                         }
-                                    }
                                     Err(err) => {
                                         let _ = reply_tx.send(Err(err));
-                                    }
+                                    },
                                 }
                             }
                         },
@@ -162,13 +118,27 @@ where
         }
     }
 
-    pub fn new(capacity: usize, interval: Duration, handler: H, replay: R, stream: S) -> Self {
+    pub fn new(
+        capacity: usize,
+        interval: Duration,
+        dispatch: fn(
+            agg_id: Uuid,
+            com_data: Vec<u8>,
+            caches: &mut HashMap<Uuid, A>,
+            replayer: &R,
+            stream: &S,
+            get_oa: fn(Uuid, &mut HashMap<Uuid, A>, &R, &S) -> Result<A, DomainError>,
+        ) -> Result<(A, A, Vec<u8>), DomainError>,
+        replayer: R,
+        stream: S,
+    ) -> Self {
         let (tx, rx) = mpsc::channel(capacity);
-        tokio::spawn(Self::task_processor(rx, interval, handler, replay, stream));
-        Aggregator {
+        tokio::spawn(Self::task_processor(
+            rx, interval, dispatch, replayer, stream,
+        ));
+        Self {
             tx,
             pool: OneshotPool::new(capacity),
-            _marker_h: PhantomData,
             _marker_r: PhantomData,
             _marker_s: PhantomData,
         }
