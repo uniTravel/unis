@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Fields, ItemStruct, parse_macro_input};
+use syn::{Fields, Ident, ItemEnum, ItemStruct, parse_macro_input};
 
 #[proc_macro_attribute]
 pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -15,7 +15,7 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
         panic!("#[aggregate]与#[derive]禁止同时使用");
     }
 
-    if let syn::Fields::Named(ref fields) = input.fields {
+    if let Fields::Named(ref fields) = input.fields {
         if fields
             .named
             .iter()
@@ -25,7 +25,7 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
-    if let syn::Fields::Named(ref fields) = input.fields {
+    if let Fields::Named(ref fields) = input.fields {
         if fields
             .named
             .iter()
@@ -35,7 +35,7 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
-    if let syn::Fields::Named(ref mut fields) = input.fields {
+    if let Fields::Named(ref mut fields) = input.fields {
         fields.named.insert(0, syn::parse_quote! (id: ::uuid::Uuid));
         fields.named.insert(1, syn::parse_quote!(revision: u64));
     } else {
@@ -76,5 +76,104 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_attribute]
+pub fn command(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemStruct);
+    let expanded = quote! {
+        #[derive(Debug, ::validator::Validate, ::bincode::Encode, ::bincode::Decode)]
+        #input
+    };
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_attribute]
+pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemStruct);
+    let expanded = quote! {
+        #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]
+        #input
+    };
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_attribute]
+pub fn command_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemEnum);
+    let agg_name = parse_macro_input!(attr as Ident);
+
+    let variants = &input.variants;
+    let match_arms = variants.iter().map(|variant| {
+        let variant_name = &variant.ident;
+        let disc = variant
+            .discriminant
+            .as_ref()
+            .map(|(_, expr)| quote! { #expr })
+            .unwrap_or_else(|| {
+                panic!("枚举变体 {} 缺少判别值", variant_name);
+            });
+        quote! {
+            #disc => com.process(agg)
+        }
+    });
+
+    let expanded = quote! {
+        #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]
+        #input
+
+        struct Dispatcher<const ID: usize> {}
+        impl<const ID: usize> Dispatcher<ID> {
+            const fn new() -> Self {
+                Self {}
+            }
+
+            #[inline(always)]
+            fn execute<C, E>(&self, com: C, agg: &mut #agg_name) -> Result<E, DomainError>
+            where
+                C: Command<A = #agg_name, E = E>,
+                E: Event<A = #agg_name>,
+            {
+                match ID {
+                    #(#match_arms,)*
+                    _ => unsafe { std::hint::unreachable_unchecked() },
+                }
+            }
+        }
+    };
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_attribute]
+pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemEnum);
+    let enum_name = &input.ident;
+    let agg_name = parse_macro_input!(attr as Ident);
+
+    let variants = &input.variants;
+    let match_arms = variants.iter().map(|variant| {
+        let variant_name = &variant.ident;
+        quote! {
+            #enum_name::#variant_name(evt) => evt.apply(agg)
+        }
+    });
+    let expanded = quote! {
+        #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]
+        #input
+
+        pub struct Replayer;
+        impl Replay for Replayer {
+            type A = #agg_name;
+
+            fn replay(&self, agg: &mut Self::A, evt_data: Vec<u8>) -> Result<(), DomainError> {
+                let (evt, _): (#enum_name, _) = bincode::decode_from_slice(&evt_data, BINCODE_CONFIG)?;
+                match evt {
+                    #(#match_arms,)*
+                }
+                Ok(())
+            }
+        }
+    };
     TokenStream::from(expanded)
 }

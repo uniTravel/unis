@@ -13,15 +13,3 @@ tracing.workspace = true
 validator.workspace = true
 serde.workspace = true
 bincode.workspace = true
-
-[[example]]
-name = "agg"
-path = "aggregate.rs"
-
-[[example]]
-name = "com"
-path = "command.rs"
-
-[[example]]
-name = "gator"
-path = "aggregator.rs"
