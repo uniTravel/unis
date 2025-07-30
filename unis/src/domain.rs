@@ -29,23 +29,22 @@ pub trait Command {
     }
 }
 
-pub trait Replay {
-    type A: Aggregate;
-
-    fn replay(&self, agg: &mut Self::A, evt_data: Vec<u8>) -> Result<(), DomainError>;
-}
-
-pub trait Stream {
-    type A: Aggregate;
-
-    fn write(
-        &self,
+pub trait Dispatch<A, L, R, S>
+where
+    A: Aggregate,
+    L: Load<A, R, S>,
+    R: Replay<A = A>,
+    S: Stream<A = A>,
+{
+    fn dispatch(
+        &mut self,
         agg_id: Uuid,
-        com_id: Uuid,
-        revision: u64,
-        evt_data: Vec<u8>,
-    ) -> Result<(), DomainError>;
-    fn read(&self, agg_id: Uuid) -> Result<Vec<Vec<u8>>, DomainError>;
+        com_data: Vec<u8>,
+        caches: &mut HashMap<Uuid, A>,
+        loader: &L,
+        replayer: &R,
+        stream: &S,
+    ) -> Result<(A, A, Vec<u8>), DomainError>;
 }
 
 pub trait Load<A, R, S>
@@ -63,20 +62,21 @@ where
     ) -> Result<A, DomainError>;
 }
 
-pub trait Dispatch<A, R, S, L>
-where
-    A: Aggregate,
-    R: Replay<A = A>,
-    S: Stream<A = A>,
-    L: Load<A, R, S>,
-{
-    fn dispatch(
-        &mut self,
+pub trait Replay {
+    type A: Aggregate;
+
+    fn replay(&self, agg: &mut Self::A, evt_data: Vec<u8>) -> Result<(), DomainError>;
+}
+
+pub trait Stream {
+    type A: Aggregate;
+
+    fn write(
+        &self,
         agg_id: Uuid,
-        com_data: Vec<u8>,
-        caches: &mut HashMap<Uuid, A>,
-        replayer: &R,
-        stream: &S,
-        loader: &L,
-    ) -> Result<(A, A, Vec<u8>), DomainError>;
+        com_id: Uuid,
+        revision: u64,
+        evt_data: Vec<u8>,
+    ) -> Result<(), DomainError>;
+    fn read(&self, agg_id: Uuid) -> Result<Vec<Vec<u8>>, DomainError>;
 }

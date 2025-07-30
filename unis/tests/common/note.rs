@@ -108,9 +108,9 @@ pub fn dispatcher<S: Stream<A = Note>>(
     agg_id: Uuid,
     com_data: Vec<u8>,
     caches: &mut HashMap<Uuid, Note>,
+    loader: &impl Load<Note, Replayer, S>,
     replayer: &Replayer,
     stream: &S,
-    loader: &impl Load<Note, Replayer, S>,
 ) -> Result<(Note, Note, Vec<u8>), DomainError> {
     let (com, _): (NoteCommand, _) = bincode::decode_from_slice(&com_data, BINCODE_CONFIG)?;
     match com {
