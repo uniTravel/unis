@@ -3,10 +3,10 @@ use common::{
     note::{self, CreateNote, NoteCommand},
     stream,
 };
-use tokio::time::Duration;
 use unis::{
     BINCODE_CONFIG,
     aggregator::{Aggregator, loader},
+    config::UniConfig,
 };
 use uuid::Uuid;
 
@@ -14,9 +14,11 @@ use crate::common::note::ChangeNote;
 
 #[tokio::test]
 async fn test1() {
+    UniConfig::initialize().unwrap();
+    // let cfg = UniConfig::get().unwrap().aggregates.get("note");
+    let cfg = UniConfig::get().unwrap().aggregates.default();
     let svc = Aggregator::new(
-        100,
-        Duration::from_secs(15),
+        cfg,
         note::dispatcher::<stream::UniStream>,
         loader::<note::Note, note::Replayer, stream::UniStream>,
         note::Replayer,

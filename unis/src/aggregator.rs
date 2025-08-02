@@ -1,12 +1,11 @@
+use crate::config::AggConfig;
 use crate::domain::{Aggregate, Dispatch, Load, Replay, Stream};
 use crate::errors::DomainError;
-use std::{
-    collections::{HashMap, VecDeque},
-    marker::PhantomData,
-};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
+use time::OffsetDateTime;
 use tokio::{
-    sync::{mpsc, oneshot},
-    time::{self, Duration},
+    sync::{Semaphore, mpsc, oneshot},
+    time::Duration,
 };
 use uuid::Uuid;
 
@@ -28,22 +27,22 @@ where
     F: FnMut(
         Uuid,
         Vec<u8>,
-        &mut HashMap<Uuid, A>,
+        &mut HashMap<Uuid, (A, OffsetDateTime)>,
         &L,
         &R,
         &S,
-    ) -> Result<(A, A, Vec<u8>), DomainError>,
+    ) -> Result<((A, OffsetDateTime), A, Vec<u8>), DomainError>,
 {
     #[inline(always)]
     fn dispatch(
         &mut self,
         agg_id: Uuid,
         com_data: Vec<u8>,
-        caches: &mut HashMap<Uuid, A>,
+        caches: &mut HashMap<Uuid, (A, OffsetDateTime)>,
         loader: &L,
         replayer: &R,
         stream: &S,
-    ) -> Result<(A, A, Vec<u8>), DomainError> {
+    ) -> Result<((A, OffsetDateTime), A, Vec<u8>), DomainError> {
         self(agg_id, com_data, caches, loader, replayer, stream)
     }
 }
@@ -53,40 +52,45 @@ where
     A: Aggregate,
     R: Replay<A = A>,
     S: Stream<A = A>,
-    F: Fn(Uuid, &mut HashMap<Uuid, A>, &R, &S) -> Result<A, DomainError>,
+    F: Fn(
+        Uuid,
+        &mut HashMap<Uuid, (A, OffsetDateTime)>,
+        &R,
+        &S,
+    ) -> Result<(A, OffsetDateTime), DomainError>,
 {
     #[inline(always)]
     fn load(
         &self,
         agg_id: Uuid,
-        caches: &mut HashMap<Uuid, A>,
+        caches: &mut HashMap<Uuid, (A, OffsetDateTime)>,
         replayer: &R,
         stream: &S,
-    ) -> Result<A, DomainError> {
+    ) -> Result<(A, OffsetDateTime), DomainError> {
         self(agg_id, caches, replayer, stream)
     }
 }
 
 pub fn loader<A, R, S>(
     agg_id: Uuid,
-    caches: &mut HashMap<Uuid, A>,
+    caches: &mut HashMap<Uuid, (A, OffsetDateTime)>,
     replayer: &R,
     stream: &S,
-) -> Result<A, DomainError>
+) -> Result<(A, OffsetDateTime), DomainError>
 where
     A: Aggregate,
     R: Replay<A = A>,
     S: Stream<A = A>,
 {
-    if let Some(oa) = caches.remove(&agg_id) {
-        return Ok(oa);
+    if let Some(o) = caches.remove(&agg_id) {
+        return Ok(o);
     } else {
         let mut oa = A::new(agg_id);
         let ds = stream.read(agg_id)?;
         for evt_data in ds {
             replayer.replay(&mut oa, evt_data)?;
         }
-        Ok(oa)
+        Ok((oa, OffsetDateTime::now_utc()))
     }
 }
 
@@ -99,6 +103,7 @@ where
     S: Stream<A = A>,
 {
     tx: mpsc::Sender<Task>,
+    semaphore: Arc<Semaphore>,
     _marker_d: PhantomData<D>,
     _marker_r: PhantomData<R>,
     _marker_s: PhantomData<S>,
@@ -114,16 +119,17 @@ where
     S: Stream<A = A> + Send + 'static,
 {
     async fn task_processor(
+        cfg: AggConfig,
         mut rx: mpsc::Receiver<Task>,
-        interval: Duration,
         mut dispatcher: D,
         loader: L,
         replayer: R,
         stream: S,
     ) {
-        let mut interval = time::interval(interval);
-        let mut caches: HashMap<Uuid, A> = HashMap::new();
-        let mut ah: VecDeque<Uuid> = VecDeque::new();
+        let mut interval = tokio::time::interval(Duration::from_secs(cfg.interval));
+        let cache_size = cfg.cache_size + (cfg.cache_size / 2).min(10000);
+        let mut caches: HashMap<Uuid, (A, OffsetDateTime)> = HashMap::with_capacity(cache_size);
+        let mut _count: usize = 0;
 
         loop {
             tokio::select! {
@@ -132,18 +138,17 @@ where
                     match task {
                         Task::Com { agg_id, com_id, com_data, reply_tx } => {
                             match dispatcher.dispatch(agg_id, com_data, &mut caches, &loader, &replayer, &stream) {
-                                Ok((oa, mut na, evt_data)) =>
+                                Ok(((oa, ot), mut na, evt_data)) =>
                                     match stream.write(agg_id, com_id, na.revision(), evt_data) {
                                         Ok(()) => {
                                             let _ = reply_tx.send(Ok(()));
                                             na.next();
-                                            ah.push_back(agg_id);
-                                            caches.insert(agg_id, na);
+                                            caches.insert(agg_id, (na, OffsetDateTime::now_utc()));
                                         }
                                         Err(err) => {
                                             let _ = reply_tx.send(Err(err));
                                             if oa.revision() != u64::MAX {
-                                                caches.insert(agg_id, oa);
+                                                caches.insert(agg_id, (oa, ot));
                                             }
                                         }
                                     }
@@ -155,26 +160,25 @@ where
                     }
                 }
                 _ = interval.tick() => {
-                    ()
+                    if caches.len() < cfg.cache_size {
+                        _count += 1;
+                    } else {
+
+                    }
                 }
             }
         }
     }
 
-    pub async fn new(
-        capacity: usize,
-        interval: Duration,
-        dispatcher: D,
-        loader: L,
-        replayer: R,
-        stream: S,
-    ) -> Self {
-        let (tx, rx) = mpsc::channel(capacity);
+    pub async fn new(cfg: AggConfig, dispatcher: D, loader: L, replayer: R, stream: S) -> Self {
+        let (tx, rx) = mpsc::channel(cfg.capacity);
+        let semaphore = Arc::new(Semaphore::new(cfg.capacity));
         tokio::spawn(Self::task_processor(
-            rx, interval, dispatcher, loader, replayer, stream,
+            cfg, rx, dispatcher, loader, replayer, stream,
         ));
         Self {
             tx,
+            semaphore,
             _marker_d: PhantomData,
             _marker_r: PhantomData,
             _marker_s: PhantomData,
@@ -189,6 +193,7 @@ where
         com_data: Vec<u8>,
     ) -> Result<(), DomainError> {
         let (reply_tx, reply_rx) = oneshot::channel();
+        let _permit = self.semaphore.acquire().await.unwrap();
         self.tx
             .send(Task::Com {
                 agg_id,

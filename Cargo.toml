@@ -20,3 +20,5 @@ bincode = "2.0"
 validator = { version = "0.20", features = ["derive"] }
 rdkafka = "0.38"
 thiserror = "2.0"
+time = "0.3"
+config = "0.15"

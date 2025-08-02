@@ -1,5 +1,6 @@
 use crate::errors::DomainError;
 use std::collections::HashMap;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 pub trait Aggregate {
@@ -40,11 +41,11 @@ where
         &mut self,
         agg_id: Uuid,
         com_data: Vec<u8>,
-        caches: &mut HashMap<Uuid, A>,
+        caches: &mut HashMap<Uuid, (A, OffsetDateTime)>,
         loader: &L,
         replayer: &R,
         stream: &S,
-    ) -> Result<(A, A, Vec<u8>), DomainError>;
+    ) -> Result<((A, OffsetDateTime), A, Vec<u8>), DomainError>;
 }
 
 pub trait Load<A, R, S>
@@ -56,10 +57,10 @@ where
     fn load(
         &self,
         agg_id: Uuid,
-        caches: &mut HashMap<Uuid, A>,
+        caches: &mut HashMap<Uuid, (A, OffsetDateTime)>,
         replayer: &R,
         stream: &S,
-    ) -> Result<A, DomainError>;
+    ) -> Result<(A, OffsetDateTime), DomainError>;
 }
 
 pub trait Replay {

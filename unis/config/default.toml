@@ -1,0 +1,4 @@
+[aggregates.note]
+interval = 15
+capacity = 200
+cache_size = 10000
