@@ -1,7 +1,24 @@
+//! # **unis** 宏
+//!
+//!
+
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Fields, Ident, ItemEnum, ItemStruct, parse_macro_input};
 
+/// 规范聚合结构体定义
+///
+/// 1. 生成私有的 id、revision 字段。
+/// 2. 添加 #[derive(Debug, Clone)]。
+/// 3. 实现 Aggregate 特征。
+///
+/// # Panics
+///
+/// 自定义字段出现 id、revision 会与宏生成的字段冲突。
+///
+/// 仅支持具名字段的结构体。
+///
+/// 禁止与 #[derive] 同时使用。
 #[proc_macro_attribute]
 pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(item as ItemStruct);
@@ -79,6 +96,9 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
+/// 规范命令结构体定义
+///
+/// 1. 添加 #[derive(Debug, ::validator::Validate, ::bincode::Encode, ::bincode::Decode)]。
 #[proc_macro_attribute]
 pub fn command(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemStruct);
@@ -89,6 +109,9 @@ pub fn command(_attr: TokenStream, item: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
+/// 规范事件结构体定义
+///
+/// 1. 添加 #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]。
 #[proc_macro_attribute]
 pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemStruct);
@@ -99,6 +122,15 @@ pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
+/// 规范命令枚举定义
+///
+/// 1. 添加 #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]。
+/// 2. 添加 #[repr(u8)]。
+/// 3. 生成基于泛型常量静态分发所需内容。
+///
+/// # Panics
+///
+/// 枚举变体需要添加判别值。
 #[proc_macro_attribute]
 pub fn command_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemEnum);
@@ -121,6 +153,7 @@ pub fn command_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]
+        #[repr(u8)]
         #input
 
         struct Dispatcher<const ID: usize> {}
@@ -145,6 +178,15 @@ pub fn command_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
+/// 规范事件枚举定义
+///
+/// 1. 添加 #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]。
+/// 2. 添加 #[repr(u8)]。
+/// 3. 生成重播事件所需内容。
+///
+/// # Panics
+///
+/// 枚举变体需要添加判别值。
 #[proc_macro_attribute]
 pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemEnum);
@@ -154,12 +196,20 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
     let variants = &input.variants;
     let match_arms = variants.iter().map(|variant| {
         let variant_name = &variant.ident;
+        let _ = variant
+            .discriminant
+            .as_ref()
+            .map(|(_, expr)| quote! { #expr })
+            .unwrap_or_else(|| {
+                panic!("枚举变体 {} 缺少判别值", variant_name);
+            });
         quote! {
             #enum_name::#variant_name(evt) => evt.apply(agg)
         }
     });
     let expanded = quote! {
         #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]
+        #[repr(u8)]
         #input
 
         pub struct Replayer;

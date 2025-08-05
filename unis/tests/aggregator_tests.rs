@@ -15,8 +15,7 @@ use crate::common::note::ChangeNote;
 #[tokio::test]
 async fn test1() {
     UniConfig::initialize().unwrap();
-    // let cfg = UniConfig::get().unwrap().aggregates.get("note");
-    let cfg = UniConfig::get().unwrap().aggregates.default();
+    let cfg = UniConfig::get().unwrap().aggregates.get("note");
     let svc = Aggregator::new(
         cfg,
         note::dispatcher::<stream::UniStream>,

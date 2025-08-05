@@ -46,7 +46,6 @@ impl Event for NoteChanged {
 }
 
 #[event_enum(Note)]
-#[repr(u8)]
 pub enum NoteEvent {
     Created(NoteCreated) = 0,
     Changed(NoteChanged) = 1,
@@ -99,7 +98,6 @@ impl Command for ChangeNote {
 }
 
 #[command_enum(Note)]
-#[repr(u8)]
 pub enum NoteCommand {
     Create(CreateNote) = 0,
     Change(ChangeNote) = 1,

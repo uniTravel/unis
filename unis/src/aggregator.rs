@@ -1,3 +1,7 @@
+//! 聚合器
+//!
+//!
+
 use crate::config::AggConfig;
 use crate::domain::{Aggregate, Dispatch, Load, Replay, Stream};
 use crate::errors::DomainError;
@@ -71,6 +75,9 @@ where
     }
 }
 
+/// 泛型的聚合加载函数
+///
+/// 构造聚合器时，具体化的聚合加载函数作为参数，系统会自动将其转为闭包传入。
 pub fn loader<A, R, S>(
     agg_id: Uuid,
     caches: &mut HashMap<Uuid, (A, OffsetDateTime)>,
@@ -94,6 +101,7 @@ where
     }
 }
 
+/// 聚合器
 pub struct Aggregator<A, D, L, R, S>
 where
     A: Aggregate,
@@ -127,9 +135,7 @@ where
         stream: S,
     ) {
         let mut interval = tokio::time::interval(Duration::from_secs(cfg.interval));
-        let cache_size = cfg.cache_size + (cfg.cache_size / 2).min(10000);
-        let mut caches: HashMap<Uuid, (A, OffsetDateTime)> = HashMap::with_capacity(cache_size);
-        let mut _count: usize = 0;
+        let mut caches: HashMap<Uuid, (A, OffsetDateTime)> = HashMap::with_capacity(cfg.high);
 
         loop {
             tokio::select! {
@@ -160,16 +166,29 @@ where
                     }
                 }
                 _ = interval.tick() => {
-                    if caches.len() < cfg.cache_size {
-                        _count += 1;
-                    } else {
-
+                    match caches.len() {
+                        len if len <= cfg.low => (),
+                        len if len > cfg.high => {
+                            let mut retain = cfg.retain;
+                            let mut baseline = OffsetDateTime::now_utc() - Duration::from_secs(retain);
+                            caches.retain(|_, (_, t)| *t > baseline);
+                            while caches.len() > cfg.high {
+                                retain = retain / 2;
+                                baseline = baseline + Duration::from_secs(retain);
+                                caches.retain(|_, (_, t)| *t > baseline);
+                            }
+                        },
+                        _ => {
+                            let baseline = OffsetDateTime::now_utc() - Duration::from_secs(cfg.retain);
+                            caches.retain(|_, (_, t)| *t > baseline);
+                        }
                     }
                 }
             }
         }
     }
 
+    /// 聚合器构造函数
     pub async fn new(cfg: AggConfig, dispatcher: D, loader: L, replayer: R, stream: S) -> Self {
         let (tx, rx) = mpsc::channel(cfg.capacity);
         let semaphore = Arc::new(Semaphore::new(cfg.capacity));
@@ -186,6 +205,7 @@ where
         }
     }
 
+    /// 提交命令的函数
     pub async fn commit(
         &self,
         agg_id: Uuid,
