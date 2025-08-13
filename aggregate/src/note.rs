@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use time::OffsetDateTime;
+use tokio::time::Instant;
 use unis::{
     BINCODE_CONFIG,
-    domain::{Aggregate, Command, Event, Load, Replay, Stream},
+    domain::{Aggregate, Command, Event, Load, Stream},
     errors::DomainError,
 };
 use unis_macros::{aggregate, command, command_enum, event, event_enum};
@@ -106,26 +106,24 @@ pub enum NoteCommand {
 pub fn dispatcher<S: Stream<A = Note>>(
     agg_id: Uuid,
     com_data: Vec<u8>,
-    caches: &mut HashMap<Uuid, (Note, OffsetDateTime)>,
+    caches: &mut HashMap<Uuid, (Note, Instant)>,
     loader: &impl Load<Note, Replayer, S>,
     replayer: &Replayer,
     stream: &S,
-) -> Result<((Note, OffsetDateTime), Note, Vec<u8>), DomainError> {
+) -> Result<((Note, Instant), Note, NoteEvent), DomainError> {
     let (com, _): (NoteCommand, _) = bincode::decode_from_slice(&com_data, BINCODE_CONFIG)?;
     match com {
         NoteCommand::Create(com) => {
             let oa = Note::new(agg_id);
             let mut na = oa.clone();
             let evt = Dispatcher::<0>::new().execute(com, &mut na)?;
-            let evt_data = bincode::encode_to_vec(&NoteEvent::Created(evt), BINCODE_CONFIG)?;
-            Ok(((oa, OffsetDateTime::now_utc()), na, evt_data))
+            Ok(((oa, Instant::now()), na, NoteEvent::Created(evt)))
         }
         NoteCommand::Change(com) => {
             let (oa, ot) = loader.load(agg_id, caches, &replayer, &stream)?;
             let mut na = oa.clone();
             let evt = Dispatcher::<1>::new().execute(com, &mut na)?;
-            let evt_data = bincode::encode_to_vec(&NoteEvent::Changed(evt), BINCODE_CONFIG)?;
-            Ok(((oa, ot), na, evt_data))
+            Ok(((oa, ot), na, NoteEvent::Changed(evt)))
         }
     }
 }

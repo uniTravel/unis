@@ -1,8 +1,8 @@
 //! **unis** 特征
 
-use crate::errors::DomainError;
-use std::collections::HashMap;
-use time::OffsetDateTime;
+use crate::{aggregator::Res, errors::DomainError};
+use std::{collections::HashMap, future::Future};
+use tokio::{sync::mpsc, time::Instant};
 use uuid::Uuid;
 
 /// 聚合特征
@@ -46,10 +46,23 @@ pub trait Command {
     }
 }
 
+/// 事件枚举
+pub trait EventEnum {
+    /// 聚合类型
+    type A: Aggregate;
+}
+
+/// 命令枚举
+pub trait CommandEnum {
+    /// 聚合类型
+    type A: Aggregate;
+}
+
 /// 分发特征
-pub trait Dispatch<A, L, R, S>
+pub trait Dispatch<A, E, L, R, S>
 where
     A: Aggregate,
+    E: EventEnum<A = A>,
     L: Load<A, R, S>,
     R: Replay<A = A>,
     S: Stream<A = A>,
@@ -59,11 +72,11 @@ where
         &mut self,
         agg_id: Uuid,
         com_data: Vec<u8>,
-        caches: &mut HashMap<Uuid, (A, OffsetDateTime)>,
+        caches: &mut HashMap<Uuid, (A, Instant)>,
         loader: &L,
         replayer: &R,
         stream: &S,
-    ) -> Result<((A, OffsetDateTime), A, Vec<u8>), DomainError>;
+    ) -> Result<((A, Instant), A, E), DomainError>;
 }
 
 /// 加载聚合特征
@@ -77,10 +90,10 @@ where
     fn load(
         &self,
         agg_id: Uuid,
-        caches: &mut HashMap<Uuid, (A, OffsetDateTime)>,
+        caches: &mut HashMap<Uuid, (A, Instant)>,
         replayer: &R,
         stream: &S,
-    ) -> Result<(A, OffsetDateTime), DomainError>;
+    ) -> Result<(A, Instant), DomainError>;
 }
 
 /// 重播特征
@@ -103,8 +116,17 @@ pub trait Stream {
         agg_id: Uuid,
         com_id: Uuid,
         revision: u64,
-        evt_data: Vec<u8>,
-    ) -> Result<(), DomainError>;
+        evt_data: bytes::Bytes,
+        buf_tx: mpsc::Sender<bytes::BytesMut>,
+    ) -> impl Future<Output = Result<(), DomainError>> + Send;
+    /// 异常反馈写入流
+    fn respond(
+        &self,
+        agg_id: Uuid,
+        com_id: Uuid,
+        res: Res,
+        evt_data: bytes::Bytes,
+    ) -> impl Future<Output = Result<(), DomainError>> + Send;
     /// 从流读取
     fn read(&self, agg_id: Uuid) -> Result<Vec<Vec<u8>>, DomainError>;
 }

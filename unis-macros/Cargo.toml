@@ -1,6 +1,6 @@
 [package]
 name = "unis-macros"
-description = "unis框架所涉宏定义。"
+description = "unis 宏。"
 
 version.workspace = true
 edition.workspace = true
@@ -12,6 +12,6 @@ repository.workspace = true
 proc-macro = true
 
 [dependencies]
-syn.workspace = true
-quote.workspace = true
+syn = { version = "2.0", features = ["full"] }
+quote = "1.0"
 uuid.workspace = true

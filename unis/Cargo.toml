@@ -9,13 +9,17 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-unis-macros = { path = "../unis-macros" }
+unis-macros.workspace = true
+
 uuid.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 bincode.workspace = true
+bytes.workspace = true
 serde.workspace = true
 validator.workspace = true
 thiserror.workspace = true
-time.workspace = true
 config.workspace = true
+
+[dev-dependencies]
+aggregate = { path = "../aggregate" }

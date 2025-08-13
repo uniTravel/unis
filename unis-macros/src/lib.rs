@@ -77,8 +77,8 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #[derive(Debug, Clone)]
         #input
 
-        impl Aggregate for #struct_name {
-            fn new(id: Uuid) -> Self {
+        impl unis::domain::Aggregate for #struct_name {
+            fn new(id: uuid::Uuid) -> Self {
                 Self {
                     id,
                     revision: u64::MAX,
@@ -134,6 +134,7 @@ pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn command_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemEnum);
+    let enum_name = &input.ident;
     let agg_name = parse_macro_input!(attr as Ident);
 
     let variants = &input.variants;
@@ -156,6 +157,10 @@ pub fn command_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
         #[repr(u8)]
         #input
 
+        impl unis::domain::CommandEnum for #enum_name {
+            type A = #agg_name;
+        }
+
         struct Dispatcher<const ID: usize> {}
         impl<const ID: usize> Dispatcher<ID> {
             const fn new() -> Self {
@@ -165,8 +170,8 @@ pub fn command_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
             #[inline(always)]
             fn execute<C, E>(&self, com: C, agg: &mut #agg_name) -> Result<E, DomainError>
             where
-                C: Command<A = #agg_name, E = E>,
-                E: Event<A = #agg_name>,
+                C: unis::domain::Command<A = #agg_name, E = E>,
+                E: unis::domain::Event<A = #agg_name>,
             {
                 match ID {
                     #(#match_arms,)*
@@ -212,8 +217,12 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
         #[repr(u8)]
         #input
 
+        impl unis::domain::EventEnum for #enum_name {
+            type A = #agg_name;
+        }
+
         pub struct Replayer;
-        impl Replay for Replayer {
+        impl unis::domain::Replay for Replayer {
             type A = #agg_name;
 
             fn replay(&self, agg: &mut Self::A, evt_data: Vec<u8>) -> Result<(), DomainError> {

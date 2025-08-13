@@ -14,12 +14,6 @@ pub enum DomainError {
     /// 反序列化错误
     #[error("反序列化错误")]
     DecodeError(#[from] bincode::error::DecodeError),
-    /// 发送错误
-    #[error("发送错误")]
-    SendError,
-    /// 接收错误
-    #[error("接收错误")]
-    RecvError,
     /// 重复提交命令
     #[error("重复提交命令")]
     Duplicate,
