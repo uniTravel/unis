@@ -1,6 +1,9 @@
 //! **unis** 特征
 
-use crate::{aggregator::Res, errors::DomainError};
+use crate::{
+    aggregator::Res,
+    errors::{ConfigError, DomainError},
+};
 use std::{collections::HashMap, future::Future};
 use tokio::{sync::mpsc, time::Instant};
 use uuid::Uuid;
@@ -129,4 +132,14 @@ pub trait Stream {
     ) -> impl Future<Output = Result<(), DomainError>> + Send;
     /// 从流读取
     fn read(&self, agg_id: Uuid) -> Result<Vec<Vec<u8>>, DomainError>;
+}
+
+/// 配置特征
+pub trait Config: Sized + 'static {
+    /// 初始化配置
+    fn initialize();
+    /// 获取配置
+    fn get() -> Result<Self, ConfigError>;
+    /// 重载配置
+    fn reload() -> Result<(), ConfigError>;
 }

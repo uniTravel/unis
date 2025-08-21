@@ -1,6 +1,0 @@
-[aggregates.note]
-capacity = 100
-interval = 120
-low = 200
-high = 20000
-retain = 7200

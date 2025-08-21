@@ -33,57 +33,8 @@
 use crate::errors::ConfigError;
 use config::{Config, Environment, File};
 use serde::{Deserialize, de::DeserializeOwned};
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{Arc, Mutex, Once},
-};
+use std::{collections::HashMap, fmt::Debug, path::PathBuf};
 use validator::Validate;
-
-struct GlobalConfig {
-    config: Mutex<Option<Arc<UniConfig>>>,
-    init_once: Once,
-}
-
-impl GlobalConfig {
-    const fn new() -> Self {
-        Self {
-            config: Mutex::new(None),
-            init_once: Once::new(),
-        }
-    }
-
-    fn initialize(&self, new_config: UniConfig) -> Result<(), ConfigError> {
-        let mut initialized = false;
-
-        self.init_once.call_once(|| {
-            *self.config.lock().unwrap() = Some(Arc::new(new_config));
-            initialized = true;
-        });
-
-        if !initialized {
-            Err(ConfigError::AlreadyInitialized)
-        } else {
-            Ok(())
-        }
-    }
-
-    fn get(&self) -> Result<Arc<UniConfig>, ConfigError> {
-        self.config
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(Arc::clone)
-            .ok_or(ConfigError::NotInitialized)
-    }
-
-    fn reload(&self, new_config: UniConfig) -> Result<(), ConfigError> {
-        *self.config.lock().unwrap() = Some(Arc::new(new_config));
-        Ok(())
-    }
-}
-
-static GLOBAL_CONFIG: GlobalConfig = GlobalConfig::new();
 
 /// 命名配置
 #[derive(Debug, Clone)]
@@ -111,12 +62,12 @@ where
     }
 }
 
-fn load_config() -> Result<UniConfig, ConfigError> {
-    let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+/// 构建配置
+pub fn build_config(crate_dir: PathBuf) -> Result<Config, ConfigError> {
     let config_root = std::env::var("UNI_CONFIG_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| crate_dir.join("config"));
-    let env = std::env::var("UNI_ENV").unwrap_or_else(|_| "dev".into());
+    let env = std::env::var("UNI_ENV").unwrap_or_else(|_| "dev".to_string());
     let config = Config::builder()
         .add_source(File::from(config_root.join("default")).required(false))
         .add_source(File::from(config_root.join(env)).required(false))
@@ -126,16 +77,17 @@ fn load_config() -> Result<UniConfig, ConfigError> {
                 .list_separator(","),
         )
         .build()?;
-
-    let aggregates = load_named_config::<AggConfig>(&config, "aggregates")?;
-    Ok(UniConfig { aggregates })
+    Ok(config)
 }
 
-fn load_named_config<T>(config: &Config, section: &str) -> Result<NamedConfig<T>, ConfigError>
+/// 加载命名配置
+///
+/// 载入 [`NamedConfig`] 结构体。
+pub fn load_named_config<T>(config: &Config, section: &str) -> Result<NamedConfig<T>, ConfigError>
 where
     T: DeserializeOwned + Validate + Clone + Default,
 {
-    let configs = config.get::<HashMap<String, T>>(&format!("{}", section))?;
+    let configs = config.get::<HashMap<String, T>>(section)?;
 
     for (key, cfg) in &configs {
         cfg.validate().map_err(|e| ConfigError::ValidationError {
@@ -146,32 +98,6 @@ where
     }
 
     Ok(NamedConfig { configs })
-}
-
-/// 配置根
-#[derive(Debug, Clone)]
-pub struct UniConfig {
-    /// 聚合配置集合
-    pub aggregates: NamedConfig<AggConfig>,
-}
-
-impl UniConfig {
-    /// 初始化配置根
-    pub fn initialize() -> Result<(), ConfigError> {
-        let config = load_config()?;
-        GLOBAL_CONFIG.initialize(config)
-    }
-
-    /// 获取配置根
-    pub fn get() -> Result<Arc<Self>, ConfigError> {
-        GLOBAL_CONFIG.get()
-    }
-
-    /// 重载配置
-    pub fn reload() -> Result<(), ConfigError> {
-        let config = load_config()?;
-        GLOBAL_CONFIG.reload(config)
-    }
 }
 
 /// 聚合配置

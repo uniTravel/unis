@@ -1,0 +1,16 @@
+[aggregates.note]
+capacity = 100
+interval = 120
+low = 200
+high = 20000
+retain = 7200
+
+[cc.note]
+"bootstrap.servers" = "localhost:9092"
+"group.id" = "cc-group"
+"enable.partition.eof" = "false"
+"session.timeout.ms" = "6000"
+"enable.auto.commit" = "false"
+"auto.offset.reset" = "latest"
+"fetch.message.max.bytes" = "10485760"
+"queued.min.messages" = "1000"

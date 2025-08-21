@@ -9,7 +9,7 @@ use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     message::{BorrowedMessage, Headers},
 };
-use std::{marker::PhantomData, sync::Arc};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
 use unis::{
@@ -113,15 +113,30 @@ where
         }
     }
 
-    pub async fn new(cfg: AggConfig, dispatcher: D, loader: L, replayer: R, stream: S) -> Self {
+    pub async fn new(
+        cfg: AggConfig,
+        settings: HashMap<String, String>,
+        dispatcher: D,
+        loader: L,
+        replayer: R,
+        stream: S,
+    ) -> Self {
+        let mut config = ClientConfig::new();
+        for (key, value) in settings {
+            config.set(key, value);
+        }
+        let consumer: Arc<StreamConsumer> = Arc::new(config.create().expect("消费者创建失败"));
+        let name = std::any::type_name::<A>();
+        let mut topic = String::with_capacity(name.len() + 8);
+        topic.push_str(name);
+        topic.push_str("-command");
+        consumer.subscribe(&[&topic]).unwrap();
+
         let (agg_tx, agg_rx) = mpsc::channel::<AggTask>(cfg.capacity);
         let (commit_tx, commit_rx) = mpsc::channel::<CommitTask>(cfg.capacity);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let semaphore = Arc::new(Semaphore::new(cfg.capacity));
         let _ = Aggregator::new(cfg, agg_rx, dispatcher, loader, replayer, stream).await;
-        let consumer = create_consumer("localhost:9092", "example-group");
-        consumer.subscribe(&["example-topic"]).unwrap();
-        // TODO：处理consumer创建与主题订阅
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let _ = CommitCoordinator::new(consumer.clone(), commit_rx, shutdown_rx.clone());
 
         let ctrl_c = tokio::spawn(async move {
@@ -177,20 +192,4 @@ async fn process_message(
 
     let com_data = msg.payload().ok_or("空消息体")?;
     Ok((agg_id, com_id, com_data.to_vec()))
-}
-
-fn create_consumer(brokers: &str, group_id: &str) -> Arc<StreamConsumer> {
-    let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", brokers)
-        .set("group.id", group_id)
-        .set("enable.partition.eof", "false")
-        .set("session.timeout.ms", "6000")
-        .set("enable.auto.commit", "false")
-        .set("auto.offset.reset", "latest")
-        .set("fetch.message.max.bytes", "10485760")
-        .set("queued.min.messages", "1000")
-        .create()
-        .expect("消费者创建失败");
-
-    Arc::new(consumer)
 }

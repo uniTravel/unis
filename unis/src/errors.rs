@@ -44,6 +44,15 @@ pub enum ConfigError {
     /// 配置未初始化
     #[error("配置未初始化")]
     NotInitialized,
+    /// 重载配置错误
+    #[error("重载配置错误")]
+    ReloadFailed,
+    /// 获取配置读锁错误
+    #[error("获取配置读锁错误")]
+    ReadFailed,
+    /// 获取配置写锁错误
+    #[error("获取配置写锁错误")]
+    WriteFailed,
     /// 配置已初始化
     #[error("配置已初始化")]
     AlreadyInitialized,

@@ -5,3 +5,5 @@
 pub(crate) mod commit;
 pub mod errors;
 pub mod subscriber;
+pub mod stream;
+pub mod config;
