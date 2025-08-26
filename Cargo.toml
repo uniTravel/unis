@@ -21,7 +21,9 @@ unis-kafka = "0.1.1"
 tokio = { version = "1.0", features = ["full"] }
 crossbeam = "0.8.4"
 tracing = { version = "0.1", features = ["release_max_level_info", "valuable"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
+ahash = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 bincode = "2.0"
 bytes = "1.10"

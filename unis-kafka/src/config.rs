@@ -51,14 +51,9 @@ pub struct SubscriberConfig {
 }
 
 impl domain::Config for SubscriberConfig {
-    fn initialize() {
-        SUBSCRIBER_CONFIG.get_or_init(|| RwLock::new(load_subscriber()));
-    }
-
     fn get() -> Result<Self, ConfigError> {
         let cfg = SUBSCRIBER_CONFIG
-            .get()
-            .ok_or(ConfigError::NotInitialized)?
+            .get_or_init(|| RwLock::new(load_subscriber()))
             .read()
             .map_err(|_| ConfigError::ReadFailed)?;
         Ok(cfg.clone())
@@ -83,14 +78,9 @@ pub struct SenderConfig {
 }
 
 impl domain::Config for SenderConfig {
-    fn initialize() {
-        SENDER_CONFIG.get_or_init(|| RwLock::new(load_sender()));
-    }
-
     fn get() -> Result<Self, ConfigError> {
         let cfg = SENDER_CONFIG
-            .get()
-            .ok_or(ConfigError::NotInitialized)?
+            .get_or_init(|| RwLock::new(load_sender()))
             .read()
             .map_err(|_| ConfigError::ReadFailed)?;
         Ok(cfg.clone())

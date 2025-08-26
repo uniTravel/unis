@@ -1,10 +1,8 @@
 //! **unis** 特征
 
-use crate::{
-    aggregator::Res,
-    errors::{ConfigError, DomainError},
-};
-use std::{collections::HashMap, future::Future};
+use crate::errors::{ConfigError, DomainError};
+use ahash::AHashMap;
+use std::future::Future;
 use tokio::{sync::mpsc, time::Instant};
 use uuid::Uuid;
 
@@ -68,14 +66,15 @@ where
     E: EventEnum<A = A>,
     L: Load<A, R, S>,
     R: Replay<A = A>,
-    S: Stream<A = A>,
+    S: Stream,
 {
     /// 分发回调函数
     fn dispatch(
         &mut self,
+        agg_type: &'static str,
         agg_id: Uuid,
         com_data: Vec<u8>,
-        caches: &mut HashMap<Uuid, (A, Instant)>,
+        caches: &mut AHashMap<Uuid, (A, Instant)>,
         loader: &L,
         replayer: &R,
         stream: &S,
@@ -87,13 +86,14 @@ pub trait Load<A, R, S>
 where
     A: Aggregate,
     R: Replay<A = A>,
-    S: Stream<A = A>,
+    S: Stream,
 {
     /// 从存储获取聚合
     fn load(
         &self,
+        agg_type: &'static str,
         agg_id: Uuid,
-        caches: &mut HashMap<Uuid, (A, Instant)>,
+        caches: &mut AHashMap<Uuid, (A, Instant)>,
         replayer: &R,
         stream: &S,
     ) -> Result<(A, Instant), DomainError>;
@@ -110,12 +110,10 @@ pub trait Replay {
 
 /// 流特征
 pub trait Stream {
-    /// 聚合类型
-    type A: Aggregate;
-
     /// 写入流
     fn write(
         &self,
+        agg_type: &'static str,
         agg_id: Uuid,
         com_id: Uuid,
         revision: u64,
@@ -123,21 +121,19 @@ pub trait Stream {
         buf_tx: mpsc::Sender<bytes::BytesMut>,
     ) -> impl Future<Output = Result<(), DomainError>> + Send;
     /// 异常反馈写入流
-    fn respond(
+    fn fail(
         &self,
+        agg_type: &'static str,
         agg_id: Uuid,
         com_id: Uuid,
-        res: Res,
         evt_data: bytes::Bytes,
     ) -> impl Future<Output = Result<(), DomainError>> + Send;
     /// 从流读取
-    fn read(&self, agg_id: Uuid) -> Result<Vec<Vec<u8>>, DomainError>;
+    fn read(&self, agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, DomainError>;
 }
 
 /// 配置特征
 pub trait Config: Sized + 'static {
-    /// 初始化配置
-    fn initialize();
     /// 获取配置
     fn get() -> Result<Self, ConfigError>;
     /// 重载配置

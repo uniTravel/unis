@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use ahash::AHashMap;
 use tokio::time::Instant;
 use unis::{
     BINCODE_CONFIG,
@@ -103,10 +103,11 @@ pub enum NoteCommand {
     Change(ChangeNote) = 1,
 }
 
-pub fn dispatcher<S: Stream<A = Note>>(
+pub fn dispatcher<S: Stream>(
+    agg_type: &'static str,
     agg_id: Uuid,
     com_data: Vec<u8>,
-    caches: &mut HashMap<Uuid, (Note, Instant)>,
+    caches: &mut AHashMap<Uuid, (Note, Instant)>,
     loader: &impl Load<Note, Replayer, S>,
     replayer: &Replayer,
     stream: &S,
@@ -120,7 +121,7 @@ pub fn dispatcher<S: Stream<A = Note>>(
             Ok(((oa, Instant::now()), na, NoteEvent::Created(evt)))
         }
         NoteCommand::Change(com) => {
-            let (oa, ot) = loader.load(agg_id, caches, &replayer, &stream)?;
+            let (oa, ot) = loader.load(agg_type, agg_id, caches, &replayer, &stream)?;
             let mut na = oa.clone();
             let evt = Dispatcher::<1>::new().execute(com, &mut na)?;
             Ok(((oa, ot), na, NoteEvent::Changed(evt)))

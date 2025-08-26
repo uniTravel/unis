@@ -104,8 +104,6 @@ where
 #[derive(Debug, Deserialize, Validate, Clone)]
 #[serde(default)]
 pub struct AggConfig {
-    /// 聚合器背压容量
-    pub capacity: usize,
     /// 聚合缓存刷新间隔，单位秒
     pub interval: u64,
     /// 聚合缓存容量下限
@@ -114,16 +112,26 @@ pub struct AggConfig {
     pub high: usize,
     /// 聚合缓存保留时长，单位秒
     pub retain: u64,
+    /// 聚合器背压容量
+    pub capacity: usize,
+    /// 聚合处理通道并发数
+    #[validate(range(min = 1))]
+    pub concurrent: usize,
+    /// 信号量
+    #[validate(range(min = 7))]
+    pub sems: usize,
 }
 
 impl Default for AggConfig {
     fn default() -> Self {
         Self {
-            capacity: 100,
             interval: 2 * 60,
             low: 200,
             high: 20000,
             retain: 2 * 24 * 60 * 60,
+            capacity: 100,
+            concurrent: 16,
+            sems: 100,
         }
     }
 }
