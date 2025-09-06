@@ -1,7 +1,13 @@
+//! Kafka订阅者
+
 use crate::{
-    commit::{CommitCoordinator, CommitTask},
-    config::SubscriberConfig,
-    errors::SubscriberError,
+    aggregator::Aggregator,
+    domain::{Aggregate, Config, Dispatch, EventEnum, Load, Replay, Stream},
+    kafka::{
+        commit::{CommitCoordinator, CommitTask},
+        config::SubscriberConfig,
+        errors::SubscriberError,
+    },
 };
 use futures::StreamExt;
 use rdkafka::{
@@ -12,12 +18,9 @@ use rdkafka::{
 use std::{marker::PhantomData, sync::Arc};
 use tokio::sync::{mpsc, watch};
 use tracing::{debug, info, warn};
-use unis::{
-    aggregator::Aggregator,
-    domain::{Aggregate, Config, Dispatch, EventEnum, Load, Replay, Stream},
-};
 use uuid::Uuid;
 
+/// 订阅者
 pub struct Subscriber<A, D, E, L, R, S>
 where
     A: Aggregate,
@@ -64,7 +67,7 @@ where
                     Ok(msg) => {
                         match process_message(&msg).await {
                             Ok((agg_id, com_id, com_data)) => {
-                                debug!("开始处理聚合{agg_id}命令{com_id}");
+                                debug!("发送聚合{agg_id}命令{com_id}");
                                 if let Err(e) = aggregator.commit(agg_id, com_id, com_data).await {
                                     warn!("发送聚合{agg_id}命令{com_id}错误：{e}");
                                 }
@@ -83,7 +86,8 @@ where
         }
     }
 
-    pub async fn new(dispatcher: D, loader: L, replayer: R, stream: S) -> Self {
+    /// 构造函数
+    pub async fn new(dispatcher: D, loader: L, replayer: R) -> Self {
         let cfg_root = SubscriberConfig::get().expect("获取订阅者配置失败");
         let agg_type = std::any::type_name::<A>();
         let cfg_name = agg_type.rsplit("::").next().expect("获取聚合名称失败");
@@ -94,6 +98,7 @@ where
         let cfg = cfg_root.aggregates.get(cfg_name);
 
         let mut config = ClientConfig::new();
+        config.set("bootstrap.servers", &cfg_root.bootstrap);
         for (key, value) in settings {
             config.set(key, value);
         }
@@ -105,7 +110,7 @@ where
 
         let (commit_tx, commit_rx) = mpsc::channel::<CommitTask>(cfg.capacity);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let aggregator = Aggregator::new(cfg, dispatcher, loader, replayer, stream).await;
+        let aggregator = Aggregator::new(cfg, dispatcher, loader, replayer).await;
         let _ = CommitCoordinator::new(consumer.clone(), commit_rx, shutdown_rx.clone());
 
         let ctrl_c = tokio::spawn(async move {
@@ -121,7 +126,7 @@ where
         ));
 
         tokio::select! {
-            _ = ctrl_c => {},
+            _ = ctrl_c => (),
             res = consumer_task => {
                 if let Err(e) = res {
                     warn!("消费者任务错误: {e}")

@@ -110,7 +110,6 @@ pub fn dispatcher<S: Stream>(
     caches: &mut AHashMap<Uuid, (Note, Instant)>,
     loader: &impl Load<Note, Replayer, S>,
     replayer: &Replayer,
-    stream: &S,
 ) -> Result<((Note, Instant), Note, NoteEvent), DomainError> {
     let (com, _): (NoteCommand, _) = bincode::decode_from_slice(&com_data, BINCODE_CONFIG)?;
     match com {
@@ -121,7 +120,7 @@ pub fn dispatcher<S: Stream>(
             Ok(((oa, Instant::now()), na, NoteEvent::Created(evt)))
         }
         NoteCommand::Change(com) => {
-            let (oa, ot) = loader.load(agg_type, agg_id, caches, &replayer, &stream)?;
+            let (oa, ot) = loader.load(agg_type, agg_id, caches, &replayer)?;
             let mut na = oa.clone();
             let evt = Dispatcher::<1>::new().execute(com, &mut na)?;
             Ok(((oa, ot), na, NoteEvent::Changed(evt)))

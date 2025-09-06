@@ -14,9 +14,12 @@ pub enum DomainError {
     /// 反序列化错误
     #[error("反序列化错误")]
     DecodeError(#[from] bincode::error::DecodeError),
-    /// 重复提交命令
-    #[error("重复提交命令")]
-    Duplicate,
+    /// 获取信号量许可错误
+    #[error("获取信号量许可错误")]
+    AcquireError(#[from] tokio::sync::AcquireError),
+    /// 发送命令错误
+    #[error("发送命令错误：{0}")]
+    SendError(String),
     /// 写入流存储错误
     #[error("写入流存储错误：{0}")]
     WriteError(String),

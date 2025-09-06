@@ -1,36 +1,34 @@
-//! 聚合器
-//!
-//!
-
-use crate::BINCODE_CONFIG;
 use crate::config::AggConfig;
 use crate::domain::{Aggregate, Dispatch, EventEnum, Load, Replay, Stream};
 use crate::errors::DomainError;
 use crate::pool::{BufferGuard, BufferPool, BufferPoolHandler};
-use ahash::{AHashMap, AHasher};
+use crate::{BINCODE_CONFIG, EMPTY_BYTES};
+use ahash::{AHashMap, AHashSet, AHasher};
 use bincode::error::EncodeError;
 use bytes::{Bytes, BytesMut};
-use std::{hash::Hasher, marker::PhantomData, sync::Arc};
+use std::{collections::VecDeque, hash::Hasher, marker::PhantomData, sync::Arc};
 use tokio::{
     sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc},
-    time::{Duration, Instant},
+    time::{Duration, Instant, MissedTickBehavior, interval_at},
 };
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-/// 聚合器任务
 pub enum AggTask {
-    /// 命令
     Com {
-        /// 聚合Id
         agg_id: Uuid,
-        /// 命令Id
         com_id: Uuid,
-        /// 命令数据
         com_data: Vec<u8>,
-        /// 回复发送通道
         _permit: OwnedSemaphorePermit,
     },
+}
+
+#[repr(u8)]
+#[derive(Debug, ::bincode::Encode, ::bincode::Decode)]
+pub enum Res {
+    Success = 0,
+    Duplicate = 1,
+    Fail = 2,
 }
 
 impl<A, E, L, R, S, F> Dispatch<A, E, L, R, S> for F
@@ -47,7 +45,6 @@ where
         &mut AHashMap<Uuid, (A, Instant)>,
         &L,
         &R,
-        &S,
     ) -> Result<((A, Instant), A, E), DomainError>,
 {
     #[inline(always)]
@@ -59,9 +56,8 @@ where
         caches: &mut AHashMap<Uuid, (A, Instant)>,
         loader: &L,
         replayer: &R,
-        stream: &S,
     ) -> Result<((A, Instant), A, E), DomainError> {
-        self(agg_type, agg_id, com_data, caches, loader, replayer, stream)
+        self(agg_type, agg_id, com_data, caches, loader, replayer)
     }
 }
 
@@ -75,7 +71,6 @@ where
         Uuid,
         &mut AHashMap<Uuid, (A, Instant)>,
         &R,
-        &S,
     ) -> Result<(A, Instant), DomainError>,
 {
     #[inline(always)]
@@ -85,40 +80,11 @@ where
         agg_id: Uuid,
         caches: &mut AHashMap<Uuid, (A, Instant)>,
         replayer: &R,
-        stream: &S,
     ) -> Result<(A, Instant), DomainError> {
-        self(agg_type, agg_id, caches, replayer, stream)
+        self(agg_type, agg_id, caches, replayer)
     }
 }
 
-/// 泛型的聚合加载函数
-///
-/// 构造聚合器时，具体化的聚合加载函数作为参数，系统会自动将其转为闭包传入。
-pub fn loader<A, R, S>(
-    agg_type: &'static str,
-    agg_id: Uuid,
-    caches: &mut AHashMap<Uuid, (A, Instant)>,
-    replayer: &R,
-    stream: &S,
-) -> Result<(A, Instant), DomainError>
-where
-    A: Aggregate,
-    R: Replay<A = A>,
-    S: Stream,
-{
-    if let Some(o) = caches.remove(&agg_id) {
-        return Ok(o);
-    } else {
-        let mut oa = A::new(agg_id);
-        let ds = stream.read(agg_type, agg_id)?;
-        for evt_data in ds {
-            replayer.replay(&mut oa, evt_data)?;
-        }
-        Ok((oa, Instant::now()))
-    }
-}
-
-/// 聚合器
 pub struct Aggregator<A, D, E, L, R, S>
 where
     A: Aggregate,
@@ -149,6 +115,7 @@ where
     S: Stream + Send + Copy + 'static,
 {
     async fn processor(
+        idx: u64,
         cfg: AggConfig,
         pool: Arc<Mutex<BufferPool>>,
         buf_tx: mpsc::Sender<BytesMut>,
@@ -156,12 +123,15 @@ where
         mut dispatcher: D,
         loader: L,
         replayer: R,
-        stream: S,
     ) {
         let agg_type = std::any::type_name::<A>();
-        let mut interval = tokio::time::interval(Duration::from_secs(cfg.interval));
+        let start = Instant::now() + Duration::from_secs(idx);
+        let mut interval = interval_at(start, Duration::from_secs(cfg.interval));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
         let mut caches: AHashMap<Uuid, (A, Instant)> = AHashMap::with_capacity(cfg.high);
-        // TODO：崩溃重启，消息重复，都会导致重复消费，需要检查命令是否已经处理
+        let mut com_set: AHashSet<Uuid> = AHashSet::new();
+        let mut com_vec: VecDeque<Uuid> = VecDeque::new();
+        S::restore(agg_type, &mut com_set, &mut com_vec, cfg.coms);
 
         loop {
             tokio::select! {
@@ -169,42 +139,68 @@ where
                 Some(task) = agg_rx.recv() => {
                     match task {
                         AggTask::Com { agg_id, com_id, com_data, _permit } => {
-                            match dispatcher.dispatch(agg_type, agg_id, com_data, &mut caches, &loader, &replayer, &stream) {
-                                Ok(((oa, ot), mut na, evt)) => {
-                                    let mut guard = BufferGuard::new(pool.clone(), buf_tx.clone());
-                                    match loop {
-                                        match bincode::encode_into_slice(&evt, guard.buf.as_mut().unwrap(), BINCODE_CONFIG) {
-                                            Ok(len) => break Ok(guard.into_inner().split_to(len).freeze()),
-                                            Err(EncodeError::UnexpectedEnd) => {
-                                                let new_size = guard.buf.as_ref().unwrap().capacity() * 2;
-                                                guard.buf.as_mut().unwrap().reserve(new_size);
+                            info!("开始处理聚合{agg_id}命令{com_id}");
+                            if com_set.contains(&com_id) {
+                                warn!("重复提交聚合{agg_id}命令{com_id}错误");
+                                match S::respond(agg_type, agg_id, com_id, Res::Duplicate, &EMPTY_BYTES).await {
+                                    Ok(()) => info!("重复提交聚合{agg_id}命令{com_id}错误反馈成功"),
+                                    Err(e) => warn!("重复提交聚合{agg_id}命令{com_id}错误反馈失败：{e}"),
+                                }
+                            } else {
+                                match dispatcher.dispatch(agg_type, agg_id, com_data, &mut caches, &loader, &replayer) {
+                                    Ok(((oa, ot), mut na, evt)) => {
+                                        debug!("聚合{agg_id}命令{com_id}预处理成功");
+                                        let mut buf = BufferGuard::get(pool.clone());
+                                        match loop {
+                                            match bincode::encode_into_slice(&evt, buf.as_mut(), BINCODE_CONFIG) {
+                                                Ok(len) => break Ok(&buf[..len]),
+                                                Err(EncodeError::UnexpectedEnd) => {
+                                                    let new_size = buf.capacity() * 2;
+                                                    buf.reserve(new_size);
+                                                }
+                                                Err(e) => break Err(DomainError::EncodeError(e)),
                                             }
-                                            Err(e) => break Err(DomainError::EncodeError(e)),
-                                        }
-                                    } {
-                                        Ok(bytes) => match stream.write(agg_type, agg_id, com_id, na.revision(), bytes, buf_tx.clone()).await {
-                                            Ok(()) => {
-                                                debug!("聚合{agg_id}命令{com_id}写入成功");
-                                                na.next();
-                                                caches.insert(agg_id, (na, Instant::now()));
+                                        } {
+                                            Ok(bytes) => match S::write(agg_type, agg_id, com_id, na.revision(), bytes).await {
+                                                Ok(()) => {
+                                                    info!("聚合{agg_id}命令{com_id}写入成功");
+                                                    na.next();
+                                                    caches.insert(agg_id, (na, Instant::now()));
+                                                }
+                                                Err(e) => {
+                                                    warn!("聚合{agg_id}命令{com_id}写入失败：{e}");
+                                                    let evt_data = Bytes::from(e.to_string());
+                                                    match S::respond(agg_type, agg_id, com_id, Res::Fail, &evt_data).await {
+                                                        Ok(()) => info!("聚合{agg_id}命令{com_id}写入失败反馈成功"),
+                                                        Err(e) => warn!("聚合{agg_id}命令{com_id}写入失败反馈失败：{e}"),
+                                                    }
+                                                    if oa.revision() != u64::MAX {
+                                                        caches.insert(agg_id, (oa, ot));
+                                                    }
+                                                }
                                             }
                                             Err(e) => {
-                                                warn!("写入聚合{agg_id}命令{com_id}错误：{e}");
-                                                if oa.revision() != u64::MAX {
-                                                    caches.insert(agg_id, (oa, ot));
+                                                warn!("聚合{agg_id}命令{com_id}事件序列化错误：{e}");
+                                                let evt_data = Bytes::from(e.to_string());
+                                                match S::respond(agg_type, agg_id, com_id, Res::Fail, &evt_data).await {
+                                                    Ok(()) => info!("聚合{agg_id}命令{com_id}事件序列化错误反馈成功"),
+                                                    Err(e) => warn!("聚合{agg_id}命令{com_id}事件序列化错误反馈失败：{e}"),
                                                 }
                                             }
                                         }
-                                        Err(e) => warn!("写入聚合{agg_id}命令{com_id}错误：{e}"),
-                                    }
-                                },
-                                Err(e) => {
-                                    let evt_data = Bytes::from(e.to_string());
-                                    match stream.fail(agg_type, agg_id, com_id, evt_data).await {
-                                        Ok(()) => debug!("聚合{agg_id}命令{com_id}处理异常写入成功"),
-                                        Err(e) => warn!("聚合{agg_id}命令{com_id}处理异常无法写入：{e}"),
-                                    }
-                                },
+                                        buf_tx.send(buf).await.ok();
+                                    },
+                                    Err(e) => {
+                                        warn!("聚合{agg_id}命令{com_id}预处理错误：{e}");
+                                        let evt_data = Bytes::from(e.to_string());
+                                        match S::respond(agg_type, agg_id, com_id, Res::Fail, &evt_data).await {
+                                            Ok(()) => info!("聚合{agg_id}命令{com_id}预处理错误反馈成功"),
+                                            Err(e) => warn!("聚合{agg_id}命令{com_id}预处理错误反馈失败：{e}"),
+                                        }
+                                    },
+                                }
+                                com_vec.push_back(com_id);
+                                com_set.insert(com_id);
                             }
                         },
                     }
@@ -224,13 +220,18 @@ where
                             caches.retain(|_, (_, t)| t.elapsed() < Duration::from_secs(cfg.retain));
                         }
                     }
+                    let len = com_vec.len() - cfg.coms;
+                    if len > 0 {
+                        let mut drained = AHashSet::with_capacity(len);
+                        drained.extend(com_vec.drain(0..len));
+                        com_set.extract_if(|id| drained.contains(id));
+                    }
                 }
             }
         }
     }
 
-    /// 聚合器构造函数
-    pub async fn new(cfg: AggConfig, dispatcher: D, loader: L, replayer: R, stream: S) -> Self {
+    pub async fn new(cfg: AggConfig, dispatcher: D, loader: L, replayer: R) -> Self {
         let pool = Arc::new(Mutex::new(BufferPool::new(cfg.sems, 1024, 8192)));
         let (buf_tx, buf_rx) = mpsc::channel::<BytesMut>(cfg.sems);
         let semaphore = Arc::new(Semaphore::new(cfg.sems));
@@ -241,10 +242,12 @@ where
         };
 
         tokio::spawn(handler.run());
-        for _ in 0..cfg.concurrent {
+        for idx in 0..cfg.concurrent {
             let (tx, rx) = mpsc::channel::<AggTask>(cfg.capacity);
+            let idx = idx.try_into().unwrap();
             senders.push(tx);
             tokio::spawn(Self::processor(
+                idx,
                 cfg.clone(),
                 pool.clone(),
                 buf_tx.clone(),
@@ -252,7 +255,6 @@ where
                 dispatcher,
                 loader,
                 replayer,
-                stream,
             ));
         }
 
@@ -269,25 +271,23 @@ where
         }
     }
 
-    /// 提交命令
     pub async fn commit(
         &mut self,
         agg_id: Uuid,
         com_id: Uuid,
         com_data: Vec<u8>,
-    ) -> Result<(), mpsc::error::SendError<AggTask>> {
-        let permit = self.semaphore.clone().acquire_owned().await.unwrap();
+    ) -> Result<(), DomainError> {
+        let permit = self.semaphore.clone().acquire_owned().await?;
         match self.concurrent {
-            1 => {
-                self.senders[0]
-                    .send(AggTask::Com {
-                        agg_id,
-                        com_id,
-                        com_data,
-                        _permit: permit,
-                    })
-                    .await
-            }
+            1 => self.senders[0]
+                .send(AggTask::Com {
+                    agg_id,
+                    com_id,
+                    com_data,
+                    _permit: permit,
+                })
+                .await
+                .map_err(|e| DomainError::SendError(e.to_string())),
             _ => {
                 self.hasher.write(agg_id.as_bytes());
                 let hash = self.hasher.finish();
@@ -301,6 +301,7 @@ where
                         _permit: permit,
                     })
                     .await
+                    .map_err(|e| DomainError::SendError(e.to_string()))
             }
         }
     }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["unis", "unis-macros", "unis-kafka", "aggregate"]
+members = ["unis", "unis-macros", "aggregate"]
 
 [workspace.package]
 version = "0.1.1"
@@ -16,7 +16,6 @@ unis-macros = { path = "./unis-macros" }
 [workspace.dependencies]
 unis = "0.1.1"
 unis-macros = "0.1.1"
-unis-kafka = "0.1.1"
 
 tokio = { version = "1.0", features = ["full"] }
 crossbeam = "0.8.4"
@@ -30,3 +29,5 @@ bytes = "1.10"
 validator = { version = "0.20", features = ["derive"] }
 thiserror = "2.0"
 config = "0.15"
+rdkafka = "0.38"
+futures = "0.3"

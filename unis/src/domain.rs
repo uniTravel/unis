@@ -1,9 +1,12 @@
 //! **unis** 特征
 
-use crate::errors::{ConfigError, DomainError};
-use ahash::AHashMap;
-use std::future::Future;
-use tokio::{sync::mpsc, time::Instant};
+use crate::{
+    aggregator::Res,
+    errors::{ConfigError, DomainError},
+};
+use ahash::{AHashMap, AHashSet};
+use std::{collections::VecDeque, future::Future};
+use tokio::time::Instant;
 use uuid::Uuid;
 
 /// 聚合特征
@@ -77,7 +80,6 @@ where
         caches: &mut AHashMap<Uuid, (A, Instant)>,
         loader: &L,
         replayer: &R,
-        stream: &S,
     ) -> Result<((A, Instant), A, E), DomainError>;
 }
 
@@ -95,7 +97,6 @@ where
         agg_id: Uuid,
         caches: &mut AHashMap<Uuid, (A, Instant)>,
         replayer: &R,
-        stream: &S,
     ) -> Result<(A, Instant), DomainError>;
 }
 
@@ -112,24 +113,29 @@ pub trait Replay {
 pub trait Stream {
     /// 写入流
     fn write(
-        &self,
         agg_type: &'static str,
         agg_id: Uuid,
         com_id: Uuid,
         revision: u64,
-        evt_data: bytes::Bytes,
-        buf_tx: mpsc::Sender<bytes::BytesMut>,
+        evt_data: &[u8],
     ) -> impl Future<Output = Result<(), DomainError>> + Send;
     /// 异常反馈写入流
-    fn fail(
-        &self,
+    fn respond(
         agg_type: &'static str,
         agg_id: Uuid,
         com_id: Uuid,
-        evt_data: bytes::Bytes,
+        res: Res,
+        evt_data: &[u8],
     ) -> impl Future<Output = Result<(), DomainError>> + Send;
     /// 从流读取
-    fn read(&self, agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, DomainError>;
+    fn read(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, DomainError>;
+    /// 恢复命令操作记录
+    fn restore(
+        agg_type: &'static str,
+        com_set: &mut AHashSet<Uuid>,
+        com_vec: &mut VecDeque<Uuid>,
+        count: usize,
+    );
 }
 
 /// 配置特征

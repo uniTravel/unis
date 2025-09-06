@@ -4,7 +4,7 @@ use tokio::sync::{Mutex, mpsc};
 
 pub(crate) struct BufferPool {
     buffers: Vec<BytesMut>,
-    _size: usize,
+    size: usize,
     max_size: usize,
 }
 
@@ -17,7 +17,7 @@ impl BufferPool {
 
         BufferPool {
             buffers,
-            _size: size,
+            size,
             max_size,
         }
     }
@@ -25,7 +25,7 @@ impl BufferPool {
     fn acquire(&mut self) -> BytesMut {
         self.buffers
             .pop()
-            .unwrap_or_else(|| BytesMut::with_capacity(self._size))
+            .unwrap_or_else(|| BytesMut::with_capacity(self.size))
     }
 }
 
@@ -46,33 +46,11 @@ impl BufferPoolHandler {
     }
 }
 
-pub(crate) struct BufferGuard {
-    pub buf: Option<BytesMut>,
-    buf_tx: mpsc::Sender<BytesMut>,
-}
+pub(crate) struct BufferGuard;
 
 impl BufferGuard {
-    pub fn new(inner: Arc<Mutex<BufferPool>>, buf_tx: mpsc::Sender<BytesMut>) -> Self {
-        let buf = {
-            let mut inner = inner.blocking_lock();
-            inner.acquire()
-        };
-
-        BufferGuard {
-            buf: Some(buf),
-            buf_tx,
-        }
-    }
-
-    pub fn into_inner(mut self) -> BytesMut {
-        self.buf.take().unwrap()
-    }
-}
-
-impl Drop for BufferGuard {
-    fn drop(&mut self) {
-        if let Some(buffer) = self.buf.take() {
-            let _ = self.buf_tx.blocking_send(buffer);
-        }
+    pub fn get(inner: Arc<Mutex<BufferPool>>) -> BytesMut {
+        let mut inner = inner.blocking_lock();
+        inner.acquire()
     }
 }

@@ -3,7 +3,7 @@
 //!
 
 pub(crate) mod commit;
+pub(crate) mod config;
 pub mod errors;
-pub mod subscriber;
 pub mod stream;
-pub mod config;
+pub mod subscriber;
