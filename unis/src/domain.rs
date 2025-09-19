@@ -1,10 +1,8 @@
 //! **unis** 特征
 
-use crate::{
-    aggregator::Res,
-    errors::{ConfigError, DomainError},
-};
-use ahash::{AHashMap, AHashSet};
+use crate::{aggregator::Res, errors::DomainError};
+use ahash::AHashSet;
+use bytes::Bytes;
 use std::{collections::VecDeque, future::Future};
 use tokio::time::Instant;
 use uuid::Uuid;
@@ -62,86 +60,66 @@ pub trait CommandEnum {
     type A: Aggregate;
 }
 
+/// 恢复命令操作记录特征
+pub trait Restore: Send + Sync + 'static {
+    /// 返回类型
+    type Fut: Future<Output = Result<(AHashSet<Uuid>, VecDeque<Uuid>), DomainError>> + Send;
+
+    /// 从存储恢复命令操作记录
+    fn restore(&self, agg_type: &'static str, latest: i64) -> Self::Fut;
+}
+
+/// 加载聚合事件流特征
+pub trait Load: Send + Sync + 'static {
+    /// 返回类型
+    type Fut: Future<Output = Result<Vec<Vec<u8>>, DomainError>> + Send;
+
+    /// 从存储加载聚合事件流
+    fn load(&self, agg_type: &'static str, agg_id: Uuid) -> Self::Fut;
+}
+
 /// 分发特征
-pub trait Dispatch<A, E, L, R, S>
+pub trait Dispatch<A, E, L>: Send + Sync + 'static
 where
     A: Aggregate,
     E: EventEnum<A = A>,
-    L: Load<A, R, S>,
-    R: Replay<A = A>,
-    S: Stream,
+    L: Load,
 {
+    /// 返回类型
+    type Fut: Future<Output = Result<((A, Instant), A, E), DomainError>> + Send;
+
     /// 分发回调函数
     fn dispatch(
-        &mut self,
-        agg_type: &'static str,
-        agg_id: Uuid,
-        com_data: Vec<u8>,
-        caches: &mut AHashMap<Uuid, (A, Instant)>,
-        loader: &L,
-        replayer: &R,
-    ) -> Result<((A, Instant), A, E), DomainError>;
-}
-
-/// 加载聚合特征
-pub trait Load<A, R, S>
-where
-    A: Aggregate,
-    R: Replay<A = A>,
-    S: Stream,
-{
-    /// 从存储获取聚合
-    fn load(
         &self,
         agg_type: &'static str,
         agg_id: Uuid,
-        caches: &mut AHashMap<Uuid, (A, Instant)>,
-        replayer: &R,
-    ) -> Result<(A, Instant), DomainError>;
+        com_data: Vec<u8>,
+        agg: Option<(A, Instant)>,
+        loader: L,
+    ) -> Self::Fut;
 }
 
-/// 重播特征
-pub trait Replay {
-    /// 聚合类型
-    type A: Aggregate;
+/// 流写入特征
+pub trait Write: Send + Sync + 'static {
+    /// 返回类型
+    type Fut: Future<Output = Result<(), DomainError>> + Send;
 
-    /// 重播事件到聚合
-    fn replay(&self, agg: &mut Self::A, evt_data: Vec<u8>) -> Result<(), DomainError>;
-}
-
-/// 流特征
-pub trait Stream {
     /// 写入流
     fn write(
+        &self,
         agg_type: &'static str,
         agg_id: Uuid,
         com_id: Uuid,
         revision: u64,
-        evt_data: &[u8],
-    ) -> impl Future<Output = Result<(), DomainError>> + Send;
-    /// 异常反馈写入流
-    fn respond(
-        agg_type: &'static str,
-        agg_id: Uuid,
-        com_id: Uuid,
         res: Res,
-        evt_data: &[u8],
-    ) -> impl Future<Output = Result<(), DomainError>> + Send;
-    /// 从流读取
-    fn read(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, DomainError>;
-    /// 恢复命令操作记录
-    fn restore(
-        agg_type: &'static str,
-        com_set: &mut AHashSet<Uuid>,
-        com_vec: &mut VecDeque<Uuid>,
-        count: usize,
-    );
+        evt_data: Bytes,
+    ) -> Self::Fut;
 }
 
 /// 配置特征
 pub trait Config: Sized + 'static {
     /// 获取配置
-    fn get() -> Result<Self, ConfigError>;
+    fn get() -> Self;
     /// 重载配置
-    fn reload() -> Result<(), ConfigError>;
+    fn reload();
 }

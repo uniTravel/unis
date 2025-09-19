@@ -5,5 +5,8 @@
 pub(crate) mod commit;
 pub(crate) mod config;
 pub mod errors;
-pub mod stream;
+pub(crate) mod pool;
+pub mod reader;
+pub mod sender;
 pub mod subscriber;
+pub mod writer;

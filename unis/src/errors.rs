@@ -27,36 +27,3 @@ pub enum DomainError {
     #[error("读取流存储错误：{0}")]
     ReadError(String),
 }
-
-/// 配置错误
-#[derive(Debug, Error)]
-pub enum ConfigError {
-    /// 配置加载错误
-    #[error("配置加载错误: {0}")]
-    LoadError(#[from] config::ConfigError),
-    /// 配置验证错误
-    #[error("配置 {section}.{key} 验证错误: {message}")]
-    ValidationError {
-        /// 配置节
-        section: String,
-        /// 配置键
-        key: String,
-        /// 错误消息
-        message: String,
-    },
-    /// 配置未初始化
-    #[error("配置未初始化")]
-    NotInitialized,
-    /// 重载配置错误
-    #[error("重载配置错误")]
-    ReloadFailed,
-    /// 获取配置读锁错误
-    #[error("获取配置读锁错误")]
-    ReadFailed,
-    /// 获取配置写锁错误
-    #[error("获取配置写锁错误")]
-    WriteFailed,
-    /// 配置已初始化
-    #[error("配置已初始化")]
-    AlreadyInitialized,
-}

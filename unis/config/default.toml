@@ -1,4 +1,5 @@
 bootstrap = "localhost:9092"
+hostname = ""
 
 [aggregates.note]
 capacity = 100
@@ -8,7 +9,6 @@ high = 20000
 retain = 7200
 
 [cc.note]
-"group.id" = "cc-group"
 "enable.partition.eof" = "false"
 "session.timeout.ms" = "6000"
 "enable.auto.commit" = "false"
@@ -17,4 +17,7 @@ retain = 7200
 "queued.min.messages" = "1000"
 
 [tp]
+"linger.ms" = "1"
+
+[cp]
 "linger.ms" = "1"

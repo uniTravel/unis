@@ -221,17 +221,12 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
             type A = #agg_name;
         }
 
-        pub struct Replayer;
-        impl unis::domain::Replay for Replayer {
-            type A = #agg_name;
-
-            fn replay(&self, agg: &mut Self::A, evt_data: Vec<u8>) -> Result<(), DomainError> {
-                let (evt, _): (#enum_name, _) = bincode::decode_from_slice(&evt_data, BINCODE_CONFIG)?;
-                match evt {
-                    #(#match_arms,)*
-                }
-                Ok(())
+        fn replay(agg: &mut #agg_name, evt_data: Vec<u8>) -> Result<(), DomainError> {
+            let (evt, _): (#enum_name, _) = bincode::decode_from_slice(&evt_data, BINCODE_CONFIG)?;
+            match evt {
+                #(#match_arms,)*
             }
+            Ok(())
         }
     };
     TokenStream::from(expanded)

@@ -2,11 +2,13 @@
 
 use crate::{
     aggregator::Aggregator,
-    domain::{Aggregate, Config, Dispatch, EventEnum, Load, Replay, Stream},
+    domain::{Aggregate, Config, Dispatch, EventEnum, Load},
     kafka::{
         commit::{CommitCoordinator, CommitTask},
         config::SubscriberConfig,
         errors::SubscriberError,
+        reader::restore,
+        writer::write,
     },
 };
 use futures::StreamExt;
@@ -15,45 +17,45 @@ use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     message::{BorrowedMessage, Headers},
 };
-use std::{marker::PhantomData, sync::Arc};
+use std::{
+    marker::PhantomData,
+    sync::{Arc, LazyLock},
+};
 use tokio::sync::{mpsc, watch};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+pub(crate) static SUBSCRIBER_CONFIG: LazyLock<SubscriberConfig> =
+    LazyLock::new(|| SubscriberConfig::get());
+
 /// 订阅者
-pub struct Subscriber<A, D, E, L, R, S>
+pub struct Subscriber<A, D, E, L>
 where
     A: Aggregate,
-    D: Dispatch<A, E, L, R, S>,
+    D: Dispatch<A, E, L>,
     E: EventEnum<A = A>,
-    L: Load<A, R, S>,
-    R: Replay<A = A>,
-    S: Stream,
+    L: Load,
 {
     _marker_a: PhantomData<A>,
     _marker_d: PhantomData<D>,
     _marker_e: PhantomData<E>,
-    _marker_r: PhantomData<R>,
-    _marker_s: PhantomData<S>,
     _marker_l: PhantomData<L>,
 }
 
-impl<A, D, E, L, R, S> Subscriber<A, D, E, L, R, S>
+impl<A, D, E, L> Subscriber<A, D, E, L>
 where
     A: Aggregate + Send + 'static,
-    D: Dispatch<A, E, L, R, S> + Send + Copy + Sync + 'static,
-    E: EventEnum<A = A> + bincode::Encode + Send + Sync + 'static,
-    L: Load<A, R, S> + Send + Copy + Sync + 'static,
-    R: Replay<A = A> + Send + Copy + Sync + 'static,
-    S: Stream + Send + Sync + Copy + 'static,
+    D: Dispatch<A, E, L>,
+    E: EventEnum<A = A> + bincode::Encode + Send + 'static,
+    L: Load + Copy,
 {
     async fn run_consumer(
-        mut aggregator: Aggregator<A, D, E, L, R, S>,
-        consumer: Arc<StreamConsumer>,
+        mut aggregator: Aggregator<A, D, E, L>,
+        cc: Arc<StreamConsumer>,
         commit_tx: mpsc::Sender<CommitTask>,
         mut shutdown_rx: watch::Receiver<bool>,
     ) {
-        let message_stream = consumer.stream();
+        let message_stream = cc.stream();
         tokio::pin!(message_stream);
 
         loop {
@@ -87,43 +89,39 @@ where
     }
 
     /// 构造函数
-    pub async fn new(dispatcher: D, loader: L, replayer: R) -> Self {
-        let cfg_root = SubscriberConfig::get().expect("获取订阅者配置失败");
+    pub async fn new(dispatcher: D, loader: L) -> Self {
         let agg_type = std::any::type_name::<A>();
         let cfg_name = agg_type.rsplit("::").next().expect("获取聚合名称失败");
-        let settings = cfg_root
+        let settings = SUBSCRIBER_CONFIG
             .cc
             .get(cfg_name)
-            .expect("获取聚合的命令消费者配置失败");
-        let cfg = cfg_root.aggregates.get(cfg_name);
-
-        let mut config = ClientConfig::new();
-        config.set("bootstrap.servers", &cfg_root.bootstrap);
-        for (key, value) in settings {
-            config.set(key, value);
-        }
-        let consumer: Arc<StreamConsumer> = Arc::new(config.create().expect("消费者创建失败"));
+            .expect("获取聚合命令消费者配置失败");
+        let cfg = SUBSCRIBER_CONFIG.aggregates.get(cfg_name);
         let mut topic = String::with_capacity(agg_type.len() + 8);
         topic.push_str(agg_type);
         topic.push_str("-command");
-        consumer.subscribe(&[&topic]).expect("订阅聚合命令失败");
+        let mut config = ClientConfig::new();
+        config.set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap);
+        config.set("group.id", &topic);
+        for (key, value) in settings {
+            config.set(key, value);
+        }
+        let cc: Arc<StreamConsumer> = Arc::new(config.create().expect("消费者创建失败"));
+        cc.subscribe(&[&topic]).expect("订阅聚合命令失败");
 
         let (commit_tx, commit_rx) = mpsc::channel::<CommitTask>(cfg.capacity);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let aggregator = Aggregator::new(cfg, dispatcher, loader, replayer).await;
-        let _ = CommitCoordinator::new(consumer.clone(), commit_rx, shutdown_rx.clone());
+        let aggregator = Aggregator::new(cfg, dispatcher, loader, restore, write).await;
+        info!("成功启用{agg_type}聚合器");
+        let _ = CommitCoordinator::new(cc.clone(), commit_rx, shutdown_rx.clone());
 
         let ctrl_c = tokio::spawn(async move {
             tokio::signal::ctrl_c().await.unwrap();
             shutdown_tx.send(true).unwrap();
         });
 
-        let consumer_task = tokio::spawn(Self::run_consumer(
-            aggregator,
-            consumer,
-            commit_tx,
-            shutdown_rx,
-        ));
+        let consumer_task =
+            tokio::spawn(Self::run_consumer(aggregator, cc, commit_tx, shutdown_rx));
 
         tokio::select! {
             _ = ctrl_c => (),
@@ -134,13 +132,13 @@ where
             }
         }
 
+        info!("成功启用{agg_type}订阅者");
+
         Self {
             _marker_a: PhantomData,
             _marker_d: PhantomData,
             _marker_e: PhantomData,
             _marker_l: PhantomData,
-            _marker_r: PhantomData,
-            _marker_s: PhantomData,
         }
     }
 }

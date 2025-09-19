@@ -1,8 +1,7 @@
-use ahash::AHashMap;
 use tokio::time::Instant;
 use unis::{
     BINCODE_CONFIG,
-    domain::{Aggregate, Command, Event, Load, Stream},
+    domain::{Aggregate, Command, Event, Load},
     errors::DomainError,
 };
 use unis_macros::{aggregate, command, command_enum, event, event_enum};
@@ -103,13 +102,12 @@ pub enum NoteCommand {
     Change(ChangeNote) = 1,
 }
 
-pub fn dispatcher<S: Stream>(
+pub async fn dispatcher(
     agg_type: &'static str,
     agg_id: Uuid,
     com_data: Vec<u8>,
-    caches: &mut AHashMap<Uuid, (Note, Instant)>,
-    loader: &impl Load<Note, Replayer, S>,
-    replayer: &Replayer,
+    agg: Option<(Note, Instant)>,
+    loader: impl Load,
 ) -> Result<((Note, Instant), Note, NoteEvent), DomainError> {
     let (com, _): (NoteCommand, _) = bincode::decode_from_slice(&com_data, BINCODE_CONFIG)?;
     match com {
@@ -120,7 +118,18 @@ pub fn dispatcher<S: Stream>(
             Ok(((oa, Instant::now()), na, NoteEvent::Created(evt)))
         }
         NoteCommand::Change(com) => {
-            let (oa, ot) = loader.load(agg_type, agg_id, caches, &replayer)?;
+            let (oa, ot) = match agg {
+                Some(o) => o,
+                None => {
+                    let mut oa = Note::new(agg_id);
+                    let ds = loader.load(agg_type, agg_id).await?;
+                    for evt_data in ds {
+                        replay(&mut oa, evt_data)?;
+                    }
+                    (oa, Instant::now())
+                }
+            };
+
             let mut na = oa.clone();
             let evt = Dispatcher::<1>::new().execute(com, &mut na)?;
             Ok(((oa, ot), na, NoteEvent::Changed(evt)))
