@@ -1,11 +1,16 @@
+//! # **unis** 核心配置
+//!
+//!
+
 use config::{Config, Environment, File};
 use serde::{Deserialize, de::DeserializeOwned};
 use std::{collections::HashMap, fmt::Debug, path::PathBuf};
 use tracing::error;
 use validator::Validate;
 
+/// 命名配置结构
 #[derive(Debug, Clone)]
-pub(crate) struct NamedConfig<T> {
+pub struct NamedConfig<T> {
     configs: HashMap<String, T>,
 }
 
@@ -13,11 +18,13 @@ impl<T> NamedConfig<T>
 where
     T: DeserializeOwned + Validate + Clone + Send + Sync + Default + 'static,
 {
+    /// 获取命名配置
     pub fn get(&self, name: &str) -> T {
         self.configs.get(name).cloned().unwrap_or_default()
     }
 }
 
+/// 构建配置
 pub fn build_config(crate_dir: PathBuf) -> Config {
     let config_root = std::env::var("UNI_CONFIG_ROOT")
         .map(PathBuf::from)
@@ -41,6 +48,7 @@ pub fn build_config(crate_dir: PathBuf) -> Config {
     }
 }
 
+/// 加载命名配置
 pub fn load_named_config<T>(config: &Config, section: &str) -> NamedConfig<T>
 where
     T: DeserializeOwned + Validate + Clone + Default,
@@ -63,17 +71,26 @@ where
     NamedConfig { configs }
 }
 
+/// 聚合配置结构
 #[derive(Debug, Deserialize, Validate, Clone)]
 #[serde(default)]
 pub struct AggConfig {
+    /// 是否热点
+    pub hotspot: bool,
+    /// 缓存刷新间隔， 单位秒
     pub interval: u64,
+    /// 缓存容量下限
     pub low: usize,
+    /// 缓存容量上限
     pub high: usize,
+    /// 缓存保留时长，单位秒
     pub retain: u64,
+    /// 恢复最近命令操作记录的时长，单位分钟
     #[validate(range(min = 2, max = 120))]
     pub latest: i64,
-    pub coms: usize,
+    /// 容量
     pub capacity: usize,
+    /// 信号量
     #[validate(range(min = 7))]
     pub sems: usize,
 }
@@ -81,12 +98,12 @@ pub struct AggConfig {
 impl Default for AggConfig {
     fn default() -> Self {
         Self {
+            hotspot: false,
             interval: 2 * 60,
             low: 200,
             high: 20000,
             retain: 2 * 24 * 60 * 60,
             latest: 30,
-            coms: 2000,
             capacity: 100,
             sems: 100,
         }

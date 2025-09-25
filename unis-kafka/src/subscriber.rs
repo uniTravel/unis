@@ -1,15 +1,11 @@
 //! Kafka订阅者
 
 use crate::{
-    aggregator::Aggregator,
-    domain::{Aggregate, Config, Dispatch, EventEnum, Load},
-    kafka::{
-        commit::{CommitCoordinator, CommitTask},
-        config::SubscriberConfig,
-        errors::SubscriberError,
-        reader::restore,
-        writer::write,
-    },
+    commit::{CommitTask, commit_coordinator},
+    config::SubscriberConfig,
+    errors::SubscriberError,
+    reader::restore,
+    stream::KafkaStream,
 };
 use futures::StreamExt;
 use rdkafka::{
@@ -23,10 +19,24 @@ use std::{
 };
 use tokio::sync::{mpsc, watch};
 use tracing::{debug, info, warn};
+use unis::{
+    Com,
+    aggregator::Aggregator,
+    domain::{Aggregate, Config, Dispatch, EventEnum, Load},
+};
 use uuid::Uuid;
 
 pub(crate) static SUBSCRIBER_CONFIG: LazyLock<SubscriberConfig> =
     LazyLock::new(|| SubscriberConfig::get());
+
+pub(crate) static SHUTDOWN_RX: LazyLock<watch::Receiver<bool>> = LazyLock::new(|| {
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.unwrap();
+        shutdown_tx.send(true).unwrap();
+    });
+    shutdown_rx
+});
 
 /// 订阅者
 pub struct Subscriber<A, D, E, L>
@@ -44,17 +54,17 @@ where
 
 impl<A, D, E, L> Subscriber<A, D, E, L>
 where
-    A: Aggregate + Send + 'static,
+    A: Aggregate,
     D: Dispatch<A, E, L>,
-    E: EventEnum<A = A> + bincode::Encode + Send + 'static,
-    L: Load + Copy,
+    E: EventEnum<A = A>,
+    L: Load,
 {
     async fn run_consumer(
-        mut aggregator: Aggregator<A, D, E, L>,
         cc: Arc<StreamConsumer>,
-        commit_tx: mpsc::Sender<CommitTask>,
-        mut shutdown_rx: watch::Receiver<bool>,
+        tx: mpsc::UnboundedSender<Com>,
+        commit_tx: mpsc::UnboundedSender<CommitTask>,
     ) {
+        let mut shutdown_rx = SHUTDOWN_RX.clone();
         let message_stream = cc.stream();
         tokio::pin!(message_stream);
 
@@ -70,13 +80,13 @@ where
                         match process_message(&msg).await {
                             Ok((agg_id, com_id, com_data)) => {
                                 debug!("发送聚合{agg_id}命令{com_id}");
-                                if let Err(e) = aggregator.commit(agg_id, com_id, com_data).await {
+                                if let Err(e) = tx.send(Com{agg_id, com_id, com_data}) {
                                     warn!("发送聚合{agg_id}命令{com_id}错误：{e}");
                                 }
                             }
                             Err(e) => warn!("{e}"),
                         }
-                        if let Err(e) = commit_tx.send(CommitTask::from(&msg)).await {
+                        if let Err(e) = commit_tx.send(CommitTask::from(&msg)) {
                             warn!("发送消费偏移量错误：{e}");
                         }
                     }
@@ -101,37 +111,23 @@ where
         topic.push_str(agg_type);
         topic.push_str("-command");
         let mut config = ClientConfig::new();
-        config.set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap);
-        config.set("group.id", &topic);
         for (key, value) in settings {
             config.set(key, value);
         }
+        config.set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap);
+        config.set("group.id", &topic);
         let cc: Arc<StreamConsumer> = Arc::new(config.create().expect("消费者创建失败"));
         cc.subscribe(&[&topic]).expect("订阅聚合命令失败");
 
-        let (commit_tx, commit_rx) = mpsc::channel::<CommitTask>(cfg.capacity);
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let aggregator = Aggregator::new(cfg, dispatcher, loader, restore, write).await;
+        let (tx, rx) = mpsc::unbounded_channel::<Com>();
+        let (commit_tx, commit_rx) = mpsc::unbounded_channel::<CommitTask>();
+        tokio::spawn(commit_coordinator(cc.clone(), commit_rx));
+
+        let stream = KafkaStream::new(&cfg);
+        Aggregator::launch(&cfg, dispatcher, loader, stream, restore, rx).await;
         info!("成功启用{agg_type}聚合器");
-        let _ = CommitCoordinator::new(cc.clone(), commit_rx, shutdown_rx.clone());
 
-        let ctrl_c = tokio::spawn(async move {
-            tokio::signal::ctrl_c().await.unwrap();
-            shutdown_tx.send(true).unwrap();
-        });
-
-        let consumer_task =
-            tokio::spawn(Self::run_consumer(aggregator, cc, commit_tx, shutdown_rx));
-
-        tokio::select! {
-            _ = ctrl_c => (),
-            res = consumer_task => {
-                if let Err(e) = res {
-                    warn!("消费者任务错误: {e}")
-                }
-            }
-        }
-
+        tokio::spawn(Self::run_consumer(cc, tx, commit_tx));
         info!("成功启用{agg_type}订阅者");
 
         Self {

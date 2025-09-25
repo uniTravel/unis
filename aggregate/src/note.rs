@@ -1,7 +1,6 @@
-use tokio::time::Instant;
 use unis::{
     BINCODE_CONFIG,
-    domain::{Aggregate, Command, Event, Load},
+    domain::{Command, Event, Load},
     errors::DomainError,
 };
 use unis_macros::{aggregate, command, command_enum, event, event_enum};
@@ -106,33 +105,22 @@ pub async fn dispatcher(
     agg_type: &'static str,
     agg_id: Uuid,
     com_data: Vec<u8>,
-    agg: Option<(Note, Instant)>,
+    mut agg: Note,
     loader: impl Load,
-) -> Result<((Note, Instant), Note, NoteEvent), DomainError> {
+) -> Result<(Note, NoteEvent), DomainError> {
     let (com, _): (NoteCommand, _) = bincode::decode_from_slice(&com_data, BINCODE_CONFIG)?;
     match com {
         NoteCommand::Create(com) => {
-            let oa = Note::new(agg_id);
-            let mut na = oa.clone();
-            let evt = Dispatcher::<0>::new().execute(com, &mut na)?;
-            Ok(((oa, Instant::now()), na, NoteEvent::Created(evt)))
+            let evt = Dispatcher::<0>::new().execute(com, &mut agg)?;
+            Ok((agg, NoteEvent::Created(evt)))
         }
         NoteCommand::Change(com) => {
-            let (oa, ot) = match agg {
-                Some(o) => o,
-                None => {
-                    let mut oa = Note::new(agg_id);
-                    let ds = loader.load(agg_type, agg_id).await?;
-                    for evt_data in ds {
-                        replay(&mut oa, evt_data)?;
-                    }
-                    (oa, Instant::now())
-                }
-            };
-
-            let mut na = oa.clone();
-            let evt = Dispatcher::<1>::new().execute(com, &mut na)?;
-            Ok(((oa, ot), na, NoteEvent::Changed(evt)))
+            let ds = loader.load(agg_type, agg_id).await?;
+            for evt_data in ds {
+                replay(&mut agg, evt_data)?;
+            }
+            let evt = Dispatcher::<1>::new().execute(com, &mut agg)?;
+            Ok((agg, NoteEvent::Changed(evt)))
         }
     }
 }

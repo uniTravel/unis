@@ -1,7 +1,3 @@
-use crate::{
-    config::{AggConfig, NamedConfig, build_config, load_named_config},
-    domain,
-};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -9,6 +5,10 @@ use std::{
 };
 use tokio::time::Duration;
 use tracing::error;
+use unis::{
+    config::{AggConfig, NamedConfig, build_config, load_named_config},
+    domain,
+};
 
 static SUBSCRIBER_CONFIG: OnceLock<RwLock<SubscriberConfig>> = OnceLock::new();
 static SENDER_CONFIG: OnceLock<RwLock<SenderConfig>> = OnceLock::new();
@@ -182,7 +182,7 @@ impl domain::Config for SenderConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::Config;
+    use unis::domain::Config;
 
     #[test]
     fn test_config_aggregate() {
@@ -193,7 +193,6 @@ mod tests {
         assert_eq!(agg.high, 20000);
         assert_eq!(agg.retain, 7200);
         assert_eq!(agg.latest, 30);
-        assert_eq!(agg.coms, 2000);
         assert_eq!(agg.capacity, 100);
         assert_eq!(agg.sems, 100);
     }

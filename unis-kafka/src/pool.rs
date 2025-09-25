@@ -1,10 +1,11 @@
-use crate::{errors::DomainError, kafka::subscriber::SUBSCRIBER_CONFIG};
+use crate::subscriber::SUBSCRIBER_CONFIG;
 use crossbeam::queue::ArrayQueue;
 use rdkafka::{
     ClientConfig,
     consumer::{Consumer, StreamConsumer},
 };
 use std::sync::{Arc, LazyLock};
+use unis::errors::DomainError;
 
 static CONFIG: LazyLock<ClientConfig> = LazyLock::new(|| {
     ClientConfig::new()

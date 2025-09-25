@@ -1,18 +1,16 @@
-//! 从Kafka读取数据
+//! 从 Kafka 读取数据
 
-use crate::{
-    errors::DomainError,
-    kafka::{pool::ConsumerPool, subscriber::SUBSCRIBER_CONFIG},
-};
+use crate::{pool::ConsumerPool, subscriber::SUBSCRIBER_CONFIG};
 use ahash::{AHashMap, AHashSet};
 use futures::StreamExt;
 use rdkafka::{Message, TopicPartitionList, consumer::Consumer, message::Headers};
-use std::{collections::VecDeque, sync::LazyLock, time::SystemTime};
+use std::{sync::LazyLock, time::SystemTime};
+use unis::errors::DomainError;
 use uuid::Uuid;
 
 static POOL: LazyLock<ConsumerPool> = LazyLock::new(|| ConsumerPool::new());
 
-///
+/// 加载事件流
 pub async fn load(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, DomainError> {
     let mut topic = String::with_capacity(agg_type.len() + 37);
     topic.push_str(agg_type);
@@ -57,13 +55,11 @@ pub async fn load(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, 
     Ok(msgs)
 }
 
-///
-pub async fn restore(
+pub(crate) async fn restore(
     agg_type: &'static str,
     latest: i64,
-) -> Result<(AHashSet<Uuid>, VecDeque<Uuid>), DomainError> {
-    let mut com_set: AHashSet<Uuid> = AHashSet::new();
-    let mut com_vec: VecDeque<Uuid> = VecDeque::new();
+) -> Result<AHashMap<Uuid, AHashSet<Uuid>>, DomainError> {
+    let mut agg_coms: AHashMap<Uuid, AHashSet<Uuid>> = AHashMap::new();
     let mut tpl = TopicPartitionList::new();
     let mut watermarks = AHashMap::new();
     let guard = POOL.get()?;
@@ -103,6 +99,11 @@ pub async fn restore(
 
     while let Some(msg) = message_stream.next().await {
         let msg = msg.map_err(|e| DomainError::ReadError(e.to_string()))?;
+        let key = msg
+            .key()
+            .ok_or("消息键不存在")
+            .map_err(|e| DomainError::ReadError(e.to_string()))?;
+        let agg_id = Uuid::from_slice(key).map_err(|e| DomainError::ReadError(e.to_string()))?;
         let id = msg
             .headers()
             .ok_or(DomainError::ReadError("消息头不存在".to_string()))?
@@ -112,8 +113,13 @@ pub async fn restore(
             .value
             .ok_or(DomainError::ReadError("'com_id'消息头值为空".to_string()))?;
         let com_id = Uuid::from_slice(id).map_err(|e| DomainError::ReadError(e.to_string()))?;
-        com_set.insert(com_id);
-        com_vec.push_back(com_id);
+        if let Some(coms) = agg_coms.get_mut(&agg_id) {
+            coms.insert(com_id);
+        } else {
+            let mut coms = AHashSet::new();
+            coms.insert(com_id);
+            agg_coms.insert(agg_id, coms);
+        }
         let pid = msg.partition();
         if msg.offset() == watermarks[&pid] {
             watermarks.remove(&pid);
@@ -123,5 +129,5 @@ pub async fn restore(
         }
     }
 
-    Ok((com_set, com_vec))
+    Ok(agg_coms)
 }

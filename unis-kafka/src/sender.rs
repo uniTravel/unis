@@ -1,9 +1,8 @@
 //! Kafka发送者
 
 use crate::{
-    domain::{Aggregate, Config},
-    kafka::{
-        commit::{CommitCoordinator, CommitTask},
+    {
+        commit::{commit_coordinator, CommitTask},
         config::SenderConfig,
     },
 };
@@ -14,6 +13,7 @@ use rdkafka::{
     message::{BorrowedMessage, Headers},
     producer::FutureProducer,
 };
+use unis::domain::{Aggregate, Config};
 use std::{
     marker::PhantomData,
     sync::{Arc, LazyLock},
@@ -46,7 +46,7 @@ where
 {
     async fn run_consumer(
         tc: Arc<StreamConsumer>,
-        commit_tx: mpsc::Sender<CommitTask>,
+        commit_tx: mpsc::UnboundedSender<CommitTask>,
         mut shutdown_rx: watch::Receiver<bool>,
     ) {
     }
@@ -60,9 +60,9 @@ where
         config.set("bootstrap.servers", &SENDER_CONFIG.bootstrap);
         config.set("group.id", format!("{agg_type}-{}", SENDER_CONFIG.hostname));
         let tc: Arc<StreamConsumer> = Arc::new(config.create().expect("消费者创建失败"));
-        let (commit_tx, commit_rx) = mpsc::channel::<CommitTask>(100);
+        let (commit_tx, commit_rx) = mpsc::unbounded_channel::<CommitTask>();
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let _ = CommitCoordinator::new(tc.clone(), commit_rx, shutdown_rx.clone());
+        // commit_coordinator(tc.clone(), commit_rx, shutdown_rx.clone());
 
         let ctrl_c = tokio::spawn(async move {
             tokio::signal::ctrl_c().await.unwrap();
