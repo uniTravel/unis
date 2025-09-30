@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kafka.configmapName" . }}
+  namespace: {{ include "names.namespace" . | quote }}
+data:
+  server.properties: |-
+    # Listeners configuration
+    listeners={{ include "kafka.listeners" . }}
+    advertised.listeners={{ include "kafka.advertisedListeners" . }}
+    listener.security.protocol.map={{ include "kafka.securityProtocolMap" . }}
+    controller.listener.names={{ .Values.listeners.controller.name }}
+    inter.broker.listener.name={{ .Values.listeners.interbroker.name }}
+    # KRaft process roles
+    process.roles=controller,broker
+    controller.quorum.voters={{ include "kafka.kraft.controllerQuorumVoters" . }}
+    # Common Kafka Configuration
+    default.replication.factor=3
+    min.insync.replicas=2

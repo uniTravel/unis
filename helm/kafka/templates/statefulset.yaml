@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "names.fullname" . }}
+  namespace: {{ include "names.namespace" . | quote }}
+  labels: {{- include "kafka.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "kafka.selectorLabels" . | nindent 6 }}
+  serviceName: {{ printf "%s-headless" (include "names.fullname" .) | trunc 63 | trimSuffix "-" }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels: {{- include "kafka.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        {{- include "kafka.prepareKafkaInitContainer" . | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default "latest" }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          env:
+            - name: KAFKA_KRAFT_CLUSTER_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-kraft-cluster-id" (include "names.fullname" .)) .Values.kraft.existingClusterIdSecret }}
+                  key: kraft-cluster-id
+          ports:
+            - name: controller
+              containerPort: {{ .Values.listeners.controller.containerPort }}
+            - name: client
+              containerPort: {{ .Values.listeners.client.containerPort }}
+            - name: interbroker
+              containerPort: {{ .Values.listeners.interbroker.containerPort }}
+            - name: external
+              containerPort: {{ .Values.listeners.external.containerPort }}
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe: {{- omit .Values.livenessProbe "enabled" | toYaml | nindent 12 }}
+            exec:
+              command:
+                - pgrep
+                - -f
+                - kafka
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe: {{- omit .Values.readinessProbe "enabled" | toYaml | nindent 12 }}
+            tcpSocket:
+              port: "controller"
+          {{- end }}
+          volumeMounts:
+            - name: kafka-config
+              mountPath: /opt/bitnami/kafka/config/server.properties
+              subPath: server.properties
+      volumes:
+        - name: kafka-configmaps
+          configMap:
+            name: {{ include "kafka.configmapName" . }}
+        - name: kafka-config
+          emptyDir: {}
+        - name: scripts
+          configMap:
+            name: {{ include "names.fullname" . }}-scripts
+            defaultMode: 493

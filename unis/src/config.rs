@@ -29,7 +29,7 @@ pub fn build_config(crate_dir: PathBuf) -> Config {
     let config_root = std::env::var("UNI_CONFIG_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| crate_dir.join("config"));
-    let env = std::env::var("UNI_ENV").unwrap_or_else(|_| "dev".to_string());
+    let env = std::env::var("UNI_ENV").unwrap_or_else(|_| "dev".to_owned());
     match Config::builder()
         .add_source(File::from(config_root.join("default")).required(false))
         .add_source(File::from(config_root.join(env)).required(false))

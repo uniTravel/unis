@@ -31,7 +31,7 @@ pub async fn load(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, 
         .map_err(|e| UniError::ReadError(e.to_string()))?;
 
     if low == -1 || high == -1 {
-        return Err(UniError::ReadError("数据为空".to_string()));
+        return Err(UniError::ReadError("数据为空".to_owned()));
     }
 
     let mut msgs = Vec::new();
@@ -102,16 +102,16 @@ pub(crate) async fn restore(
         let key = msg
             .key()
             .ok_or("消息键不存在")
-            .map_err(|e| UniError::ReadError(e.to_string()))?;
+            .map_err(|e| UniError::ReadError(e.to_owned()))?;
         let agg_id = Uuid::from_slice(key).map_err(|e| UniError::ReadError(e.to_string()))?;
         let id = msg
             .headers()
-            .ok_or(UniError::ReadError("消息头不存在".to_string()))?
+            .ok_or(UniError::ReadError("消息头不存在".to_owned()))?
             .iter()
             .find(|h| h.key == "com_id")
-            .ok_or(UniError::ReadError("'com_id'消息头不存在".to_string()))?
+            .ok_or(UniError::ReadError("'com_id'消息头不存在".to_owned()))?
             .value
-            .ok_or(UniError::ReadError("'com_id'消息头值为空".to_string()))?;
+            .ok_or(UniError::ReadError("'com_id'消息头值为空".to_owned()))?;
         let com_id = Uuid::from_slice(id).map_err(|e| UniError::ReadError(e.to_string()))?;
         if let Some(coms) = agg_coms.get_mut(&agg_id) {
             coms.insert(com_id);

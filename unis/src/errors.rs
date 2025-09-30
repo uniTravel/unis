@@ -51,6 +51,6 @@ impl UniError {
 
 impl From<&str> for UniError {
     fn from(s: &str) -> Self {
-        UniError::MsgError(s.to_string())
+        UniError::MsgError(s.to_owned())
     }
 }

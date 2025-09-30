@@ -20,7 +20,7 @@ pub(crate) struct Commit {
 impl From<&BorrowedMessage<'_>> for Commit {
     fn from(msg: &BorrowedMessage) -> Self {
         Self {
-            topic: msg.topic().to_string(),
+            topic: msg.topic().to_owned(),
             partition: msg.partition(),
             offset: msg.offset(),
         }
