@@ -1,4 +1,4 @@
-use crate::subscriber::{SHUTDOWN_RX, SUBSCRIBER_CONFIG};
+use crate::subscriber::SUBSCRIBER_CONFIG;
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
@@ -32,7 +32,6 @@ pub(crate) struct TopicTask {
 }
 
 async fn topic_creator(mut topic_rx: mpsc::UnboundedReceiver<TopicTask>) {
-    let mut shutdown_rx = SHUTDOWN_RX.clone();
     let mut batch = Vec::with_capacity(1000);
     let mut last_flush = Instant::now();
     let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -45,36 +44,40 @@ async fn topic_creator(mut topic_rx: mpsc::UnboundedReceiver<TopicTask>) {
     loop {
         tokio::select! {
             biased;
-            _ = shutdown_rx.changed(), if *shutdown_rx.borrow() => {
-                info!("收到关闭信号，开始优雅退出");
-                if !batch.is_empty() {
-                    info!("优雅关闭，提交主题创建");
-                    topic_batch(&mut batch, &opts).await;
-                }
-                break;
-            }
-            Some(TopicTask{agg_type, agg_id}) = topic_rx.recv() => {
-                let mut topic = String::with_capacity(agg_type.len() + 37);
-                topic.push_str(agg_type);
-                topic.push_str("-");
-                topic.push_str(&agg_id.to_string());
-                batch.push(topic);
-
-                if count == threshold {
-                    debug!("触及提交计数阈值，提交主题创建");
-                    topic_batch(&mut batch, &opts).await;
-                    last_flush = Instant::now();
-                    count = 0;
-                } else {
-                    count += 1;
-                }
-            }
             _ = interval.tick() => {
                 if !batch.is_empty() && last_flush.elapsed() > Duration::from_secs(5) {
                     debug!("触及提交间隔阈值，提交主题创建");
                     topic_batch(&mut batch, &opts).await;
                     last_flush = Instant::now();
                     count = 0;
+                }
+            }
+            data = topic_rx.recv() => {
+                match data {
+                    Some(TopicTask{agg_type, agg_id}) => {
+                        let mut topic = String::with_capacity(agg_type.len() + 37);
+                        topic.push_str(agg_type);
+                        topic.push_str("-");
+                        topic.push_str(&agg_id.to_string());
+                        batch.push(topic);
+
+                        if count == threshold {
+                            debug!("触及提交计数阈值，提交主题创建");
+                            topic_batch(&mut batch, &opts).await;
+                            last_flush = Instant::now();
+                            count = 0;
+                        } else {
+                            count += 1;
+                        }
+                    }
+                    None => {
+                        info!("发送端均已关闭，开始优雅退出");
+                        if !batch.is_empty() {
+                            info!("优雅关闭，提交主题创建");
+                            topic_batch(&mut batch, &opts).await;
+                        }
+                        break;
+                    }
                 }
             }
         }

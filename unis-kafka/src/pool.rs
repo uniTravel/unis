@@ -5,7 +5,7 @@ use rdkafka::{
     consumer::{Consumer, StreamConsumer},
 };
 use std::sync::{Arc, LazyLock};
-use unis::errors::DomainError;
+use unis::errors::UniError;
 
 static CONFIG: LazyLock<ClientConfig> = LazyLock::new(|| {
     ClientConfig::new()
@@ -25,7 +25,7 @@ impl ConsumerPool {
         let consumers = Arc::new(ArrayQueue::new(SUBSCRIBER_CONFIG.aggs));
 
         for _ in 0..SUBSCRIBER_CONFIG.aggs {
-            let consumer = CONFIG.create::<StreamConsumer>().expect("消费者创建失败");
+            let consumer = CONFIG.create::<StreamConsumer>().expect("聚合消费者创建失败");
             let _ = consumers.push(consumer);
         }
 
@@ -33,7 +33,7 @@ impl ConsumerPool {
     }
 
     #[inline(always)]
-    pub fn get(&self) -> Result<ConsumerGuard, DomainError> {
+    pub fn get(&self) -> Result<ConsumerGuard, UniError> {
         match self.consumers.pop() {
             Some(consumer) => Ok(ConsumerGuard {
                 consumer: Some(consumer),
@@ -44,7 +44,7 @@ impl ConsumerPool {
                     consumer: Some(consumer),
                     pool: self.consumers.clone(),
                 }),
-                Err(e) => Err(DomainError::ReadError(e.to_string())),
+                Err(e) => Err(UniError::ReadError(e.to_string())),
             },
         }
     }

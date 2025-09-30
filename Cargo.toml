@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["unis", "unis-macros", "aggregate", "unis-kafka"]
+members = ["unis", "unis-macros", "unis-kafka", "aggregate"]
+default-members = ["unis", "unis-macros", "unis-kafka"]
 
 [workspace.package]
 version = "0.1.1"

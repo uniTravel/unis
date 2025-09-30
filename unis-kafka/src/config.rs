@@ -6,7 +6,7 @@ use std::{
 use tokio::time::Duration;
 use tracing::error;
 use unis::{
-    config::{AggConfig, NamedConfig, build_config, load_named_config},
+    config::{NamedConfig, SendConfig, SubscribeConfig, build_config, load_named_config},
     domain,
 };
 
@@ -47,7 +47,7 @@ fn load_subscriber() -> SubscriberConfig {
     };
     let aggs = config.get("aggs").unwrap_or(16);
     let timeout = config.get("timeout").unwrap_or(Duration::from_secs(45));
-    let aggregates = load_named_config::<AggConfig>(&config, "aggregates");
+    let subscriber = load_named_config(&config, "subscriber");
     let cc = load_named_setting(&config, "cc");
     let tp = match config.get::<HashMap<String, String>>("tp") {
         Ok(c) => c,
@@ -60,7 +60,7 @@ fn load_subscriber() -> SubscriberConfig {
         bootstrap,
         aggs,
         timeout,
-        aggregates,
+        subscriber,
         cc,
         tp,
     }
@@ -82,6 +82,8 @@ fn load_sender() -> SenderConfig {
             panic!("加载'hostname'配置失败");
         }
     };
+    let timeout = config.get("timeout").unwrap_or(Duration::from_secs(45));
+    let sender = load_named_config(&config, "sender");
     let cp = match config.get::<HashMap<String, String>>("cp") {
         Ok(c) => c,
         Err(e) => {
@@ -92,6 +94,8 @@ fn load_sender() -> SenderConfig {
     SenderConfig {
         bootstrap,
         hostname,
+        timeout,
+        sender,
         cp,
     }
 }
@@ -101,7 +105,7 @@ pub struct SubscriberConfig {
     pub bootstrap: String,
     pub aggs: usize,
     pub timeout: Duration,
-    pub aggregates: NamedConfig<AggConfig>,
+    pub subscriber: NamedConfig<SubscribeConfig>,
     pub cc: HashMap<String, HashMap<String, String>>,
     pub tp: HashMap<String, String>,
 }
@@ -143,6 +147,8 @@ impl domain::Config for SubscriberConfig {
 pub struct SenderConfig {
     pub bootstrap: String,
     pub hostname: String,
+    pub timeout: Duration,
+    pub sender: NamedConfig<SendConfig>,
     pub cp: HashMap<String, String>,
 }
 
@@ -185,32 +191,36 @@ mod tests {
     use unis::domain::Config;
 
     #[test]
-    fn test_config_aggregate() {
-        let cfg = SubscriberConfig::get();
-        let agg = cfg.aggregates.get("note");
-        assert_eq!(agg.interval, 120);
-        assert_eq!(agg.low, 200);
-        assert_eq!(agg.high, 20000);
-        assert_eq!(agg.retain, 7200);
-        assert_eq!(agg.latest, 30);
-        assert_eq!(agg.capacity, 100);
-        assert_eq!(agg.sems, 100);
-    }
-
-    #[test]
-    fn test_config_subscriber() {
+    fn config_subscriber() {
         let cfg = SubscriberConfig::get();
         assert_eq!(cfg.bootstrap, "localhost:9092");
-        let cc = cfg.cc.get("note").unwrap();
+        assert_eq!(cfg.aggs, 16);
+        assert_eq!(cfg.timeout, Duration::from_secs(45));
+        let agg = cfg.subscriber.get("Note");
+        assert_eq!(agg.hotspot, true);
+        assert_eq!(agg.interval, 1800);
+        assert_eq!(agg.low, 200);
+        assert_eq!(agg.high, 20000);
+        assert_eq!(agg.retain, 172800);
+        assert_eq!(agg.latest, 30);
+        assert_eq!(agg.sems, 300);
+        let cc = cfg.cc.get("Note").unwrap();
         assert_eq!(cc.get("enable.auto.commit").unwrap(), "false");
         let tp = &cfg.tp;
         assert_eq!(tp.get("linger.ms").unwrap(), "1");
     }
 
     #[test]
-    fn test_config_sender() {
+    fn config_sender() {
         let cfg = SenderConfig::get();
         assert_eq!(cfg.bootstrap, "localhost:9092");
+        assert_eq!(cfg.hostname, "");
+        assert_eq!(cfg.timeout, Duration::from_secs(45));
+        let agg = cfg.sender.get("Note");
+        assert_eq!(agg.hotspot, false);
+        assert_eq!(agg.interval, 86400);
+        assert_eq!(agg.retain, 172800);
+        assert_eq!(agg.sems, 50);
         let cp = &cfg.cp;
         assert_eq!(cp.get("linger.ms").unwrap(), "1");
     }

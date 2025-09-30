@@ -1,14 +1,18 @@
+//! # **unis** 核心资源池
+
 use bytes::BytesMut;
 use crossbeam::queue::ArrayQueue;
 use std::sync::Arc;
 
+/// 缓冲池结构
 #[derive(Clone, Debug)]
-pub(crate) struct BufferPool {
+pub struct BufferPool {
     queue: Arc<ArrayQueue<BytesMut>>,
     capacity: usize,
 }
 
 impl BufferPool {
+    /// 构造函数
     pub fn new(capacity: usize, warm_size: usize) -> Self {
         let queue = Arc::new(ArrayQueue::new(warm_size));
 
@@ -19,6 +23,7 @@ impl BufferPool {
         Self { queue, capacity }
     }
 
+    /// 获取缓冲
     #[inline(always)]
     pub fn get(&self) -> BytesMut {
         match self.queue.pop() {
@@ -30,6 +35,7 @@ impl BufferPool {
         }
     }
 
+    /// 归还缓冲
     #[inline(always)]
     pub fn put(&self, mut buf: BytesMut) {
         buf.clear();

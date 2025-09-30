@@ -71,10 +71,10 @@ where
     NamedConfig { configs }
 }
 
-/// 聚合配置结构
+/// 订阅者聚合配置结构
 #[derive(Debug, Deserialize, Validate, Clone)]
 #[serde(default)]
-pub struct AggConfig {
+pub struct SubscribeConfig {
     /// 是否热点
     pub hotspot: bool,
     /// 缓存刷新间隔， 单位秒
@@ -88,23 +88,46 @@ pub struct AggConfig {
     /// 恢复最近命令操作记录的时长，单位分钟
     #[validate(range(min = 2, max = 120))]
     pub latest: i64,
-    /// 容量
-    pub capacity: usize,
     /// 信号量
     #[validate(range(min = 7))]
     pub sems: usize,
 }
 
-impl Default for AggConfig {
+impl Default for SubscribeConfig {
     fn default() -> Self {
         Self {
             hotspot: false,
-            interval: 2 * 60,
+            interval: 30 * 60,
             low: 200,
             high: 20000,
             retain: 2 * 24 * 60 * 60,
             latest: 30,
-            capacity: 100,
+            sems: 100,
+        }
+    }
+}
+
+/// 发送者聚合配置结构
+#[derive(Debug, Deserialize, Validate, Clone)]
+#[serde(default)]
+pub struct SendConfig {
+    /// 是否热点
+    pub hotspot: bool,
+    /// 缓存刷新间隔， 单位秒
+    pub interval: u64,
+    /// 缓存保留时长，单位秒
+    pub retain: u64,
+    /// 信号量
+    #[validate(range(min = 7))]
+    pub sems: usize,
+}
+
+impl Default for SendConfig {
+    fn default() -> Self {
+        Self {
+            hotspot: false,
+            interval: 24 * 60 * 60,
+            retain: 2 * 24 * 60 * 60,
             sems: 100,
         }
     }

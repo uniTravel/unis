@@ -15,7 +15,7 @@ use rdkafka::{
 use std::sync::{Arc, LazyLock};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
-use unis::{Res, config::AggConfig, domain::Stream, errors::DomainError};
+use unis::{Response, config::SubscribeConfig, domain, errors::UniError};
 use uuid::Uuid;
 
 static SHARED: LazyLock<Arc<FutureProducer>> = LazyLock::new(|| {
@@ -25,22 +25,21 @@ static SHARED: LazyLock<Arc<FutureProducer>> = LazyLock::new(|| {
 });
 
 static TP_CONFIG: LazyLock<ClientConfig> = LazyLock::new(|| {
-    let cfg = &SUBSCRIBER_CONFIG.tp;
     let mut config = ClientConfig::new();
-    config.set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap);
-    for (key, value) in cfg {
+    for (key, value) in &SUBSCRIBER_CONFIG.tp {
         config.set(key, value);
     }
+    config.set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap);
     config
 });
 
-pub(crate) struct KafkaStream {
+pub(crate) struct Stream {
     topic_tx: mpsc::UnboundedSender<TopicTask>,
     producer: Arc<FutureProducer>,
 }
 
-impl KafkaStream {
-    pub fn new(cfg: &AggConfig) -> Self {
+impl Stream {
+    pub fn new(cfg: &SubscribeConfig) -> Self {
         LazyLock::force(&TOPIC_TX);
         let producer = match cfg.hotspot {
             true => Arc::new(TP_CONFIG.create().expect("聚合类型生产者创建失败")),
@@ -53,7 +52,7 @@ impl KafkaStream {
     }
 }
 
-impl Stream for KafkaStream {
+impl domain::Stream for Stream {
     async fn write(
         &self,
         agg_type: &'static str,
@@ -61,7 +60,7 @@ impl Stream for KafkaStream {
         com_id: Uuid,
         revision: u64,
         evt_data: Bytes,
-    ) -> Result<(), DomainError> {
+    ) -> Result<(), UniError> {
         if revision == u64::MAX {
             if let Err(e) = self.topic_tx.send(TopicTask { agg_type, agg_id }) {
                 warn!("发送聚合主题{agg_type}-{agg_id}失败：{e}");
@@ -69,7 +68,7 @@ impl Stream for KafkaStream {
         }
 
         let mut buf = [0u8; 1];
-        encode_into_slice(Res::Success, &mut buf, BINCODE_HEADER)?;
+        encode_into_slice(Response::Success, &mut buf, BINCODE_HEADER)?;
         let record = FutureRecord::to(agg_type)
             .payload(evt_data.as_ref())
             .key(agg_id.as_bytes())
@@ -80,7 +79,7 @@ impl Stream for KafkaStream {
                         value: Some(com_id.as_bytes()),
                     })
                     .insert(Header {
-                        key: "res",
+                        key: "response",
                         value: Some(&buf),
                     }),
             );
@@ -88,7 +87,7 @@ impl Stream for KafkaStream {
         self.producer
             .send(record, SUBSCRIBER_CONFIG.timeout)
             .await
-            .map_err(|(e, _)| DomainError::WriteError(e.to_string()))
+            .map_err(|(e, _)| UniError::WriteError(e.to_string()))
             .map(
                 |Delivery {
                      partition,
@@ -105,9 +104,9 @@ impl Stream for KafkaStream {
         agg_type: &'static str,
         agg_id: Uuid,
         com_id: Uuid,
-        res: Res,
+        res: Response,
         evt_data: Bytes,
-    ) -> Result<(), DomainError> {
+    ) -> Result<(), UniError> {
         let mut buf = [0u8; 1];
         encode_into_slice(res, &mut buf, BINCODE_HEADER)?;
         let record = FutureRecord::to(agg_type)
@@ -120,7 +119,7 @@ impl Stream for KafkaStream {
                         value: Some(com_id.as_bytes()),
                     })
                     .insert(Header {
-                        key: "res",
+                        key: "response",
                         value: Some(&buf),
                     }),
             );
@@ -128,7 +127,7 @@ impl Stream for KafkaStream {
         self.producer
             .send(record, SUBSCRIBER_CONFIG.timeout)
             .await
-            .map_err(|(e, _)| DomainError::WriteError(e.to_string()))
+            .map_err(|(e, _)| UniError::WriteError(e.to_string()))
             .map(
                 |Delivery {
                      partition,

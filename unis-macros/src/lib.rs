@@ -168,7 +168,7 @@ pub fn command_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
 
             #[inline(always)]
-            fn execute<C, E>(&self, com: C, agg: &mut #agg_name) -> Result<E, DomainError>
+            fn execute<C, E>(&self, com: C, agg: &mut #agg_name) -> Result<E, ::unis::errors::UniError>
             where
                 C: unis::domain::Command<A = #agg_name, E = E>,
                 E: unis::domain::Event<A = #agg_name>,
@@ -221,7 +221,7 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
             type A = #agg_name;
         }
 
-        fn replay(agg: &mut #agg_name, evt_data: Vec<u8>) -> Result<(), DomainError> {
+        fn replay(agg: &mut #agg_name, evt_data: Vec<u8>) -> Result<(), ::unis::errors::UniError> {
             let (evt, _): (#enum_name, _) = bincode::decode_from_slice(&evt_data, BINCODE_CONFIG)?;
             match evt {
                 #(#match_arms,)*

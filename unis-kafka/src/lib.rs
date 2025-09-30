@@ -8,7 +8,6 @@ pub(crate) mod pool;
 pub(crate) mod stream;
 pub(crate) mod topic;
 
-pub mod errors;
 pub mod reader;
 pub mod sender;
 pub mod subscriber;

@@ -1,4 +1,3 @@
-use crate::subscriber::SHUTDOWN_RX;
 use ahash::AHashMap;
 use rdkafka::{
     Message, Offset, TopicPartitionList,
@@ -12,13 +11,13 @@ use tokio::{
 };
 use tracing::{debug, info, warn};
 
-pub(crate) struct CommitTask {
+pub(crate) struct Commit {
     topic: String,
     partition: i32,
     offset: i64,
 }
 
-impl From<&BorrowedMessage<'_>> for CommitTask {
+impl From<&BorrowedMessage<'_>> for Commit {
     fn from(msg: &BorrowedMessage) -> Self {
         Self {
             topic: msg.topic().to_string(),
@@ -30,9 +29,8 @@ impl From<&BorrowedMessage<'_>> for CommitTask {
 
 pub(crate) async fn commit_coordinator(
     consumer: Arc<StreamConsumer>,
-    mut commit_rx: mpsc::UnboundedReceiver<CommitTask>,
+    mut commit_rx: mpsc::UnboundedReceiver<Commit>,
 ) {
-    let mut shutdown_rx = SHUTDOWN_RX.clone();
     let mut tpl = TopicPartitionList::new();
     let mut batch = AHashMap::new();
     let mut last_flush = Instant::now();
@@ -43,34 +41,38 @@ pub(crate) async fn commit_coordinator(
     loop {
         tokio::select! {
             biased;
-            _ = shutdown_rx.changed(), if *shutdown_rx.borrow() => {
-                info!("收到关闭信号，开始优雅退出");
-                if !batch.is_empty() {
-                    info!("优雅关闭，提交偏移量");
-                    commit_batch(&consumer, &mut tpl, &mut batch).await;
-                }
-                break;
-            }
-            Some(task) = commit_rx.recv() => {
-                batch.entry((task.topic, task.partition))
-                    .and_modify(|e| *e = task.offset.max(*e))
-                    .or_insert(task.offset);
-
-                if count == threshold {
-                    debug!("触及提交计数阈值，提交偏移量");
-                    commit_batch(&consumer, &mut tpl, &mut batch).await;
-                    last_flush = Instant::now();
-                    count = 0;
-                } else {
-                    count += 1;
-                }
-            }
             _ = interval.tick() => {
                 if !batch.is_empty() && last_flush.elapsed() > Duration::from_secs(5) {
                     debug!("触及提交间隔阈值，提交偏移量");
                     commit_batch(&consumer,&mut tpl, &mut batch).await;
                     last_flush = Instant::now();
                     count = 0;
+                }
+            }
+            data = commit_rx.recv() => {
+                match data {
+                    Some(task) => {
+                        batch.entry((task.topic, task.partition))
+                            .and_modify(|e| *e = task.offset.max(*e))
+                            .or_insert(task.offset);
+
+                        if count == threshold {
+                            debug!("触及提交计数阈值，提交偏移量");
+                            commit_batch(&consumer, &mut tpl, &mut batch).await;
+                            last_flush = Instant::now();
+                            count = 0;
+                        } else {
+                            count += 1;
+                        }
+                    }
+                    None => {
+                        info!("发送端均已关闭，开始优雅退出");
+                        if !batch.is_empty() {
+                            info!("优雅关闭，提交偏移量");
+                            commit_batch(&consumer, &mut tpl, &mut batch).await;
+                        }
+                        break;
+                    }
                 }
             }
         }

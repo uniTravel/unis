@@ -1,14 +1,14 @@
 bootstrap = "localhost:9092"
 hostname = ""
 
-[aggregates.note]
-capacity = 100
-interval = 120
-low = 200
-high = 20000
-retain = 7200
+[subscriber.Note]
+hotspot = true
+sems = 300
 
-[cc.note]
+[sender.Note]
+sems = 50
+
+[cc.Note]
 "session.timeout.ms" = "6000"
 "enable.auto.commit" = "false"
 "auto.offset.reset" = "latest"

@@ -1,13 +1,13 @@
-//! **unis** 特征
+//! # **unis** 特征
 
-use crate::{Res, errors::DomainError};
+use crate::{Response, errors::UniError};
 use ahash::{AHashMap, AHashSet};
 use bytes::Bytes;
 use std::future::Future;
 use uuid::Uuid;
 
 /// 聚合特征
-pub trait Aggregate: Send + Clone + 'static {
+pub trait Aggregate: Send + 'static {
     /// 构造函数
     fn new(id: Uuid) -> Self;
     /// 递增 revision
@@ -35,11 +35,11 @@ pub trait Command {
     type E: Event<A = Self::A>;
 
     /// 检查命令是否合法
-    fn check(&self, agg: &Self::A) -> Result<(), DomainError>;
+    fn check(&self, agg: &Self::A) -> Result<(), UniError>;
     /// 执行命令，生成相应事件
     fn execute(&self, agg: &Self::A) -> Self::E;
     /// 处理命令
-    fn process(&self, na: &mut Self::A) -> Result<Self::E, DomainError> {
+    fn process(&self, na: &mut Self::A) -> Result<Self::E, UniError> {
         self.check(&na)?;
         let evt = self.execute(&na);
         evt.apply(na);
@@ -54,7 +54,7 @@ pub trait EventEnum: bincode::Encode + Send + 'static {
 }
 
 /// 命令枚举
-pub trait CommandEnum {
+pub trait CommandEnum: bincode::Encode + Send {
     /// 聚合类型
     type A: Aggregate;
 }
@@ -62,18 +62,18 @@ pub trait CommandEnum {
 /// 恢复命令操作记录特征
 pub trait Restore: Send + Sync + 'static {
     /// 返回类型
-    type Fut: Future<Output = Result<AHashMap<Uuid, AHashSet<Uuid>>, DomainError>> + Send;
+    type Fut: Future<Output = Result<AHashMap<Uuid, AHashSet<Uuid>>, UniError>> + Send;
 
     /// 从存储恢复命令操作记录
     fn restore(&self, agg_type: &'static str, latest: i64) -> Self::Fut;
 }
 
-/// 加载聚合事件流特征
+/// 加载事件流特征
 pub trait Load: Send + Sync + Copy + 'static {
     /// 返回类型
-    type Fut: Future<Output = Result<Vec<Vec<u8>>, DomainError>> + Send;
+    type Fut: Future<Output = Result<Vec<Vec<u8>>, UniError>> + Send;
 
-    /// 从存储加载聚合事件流
+    /// 从存储加载事件流
     fn load(&self, agg_type: &'static str, agg_id: Uuid) -> Self::Fut;
 }
 
@@ -85,7 +85,7 @@ where
     L: Load,
 {
     /// 返回类型
-    type Fut: Future<Output = Result<(A, E), DomainError>> + Send;
+    type Fut: Future<Output = Result<(A, E), UniError>> + Send;
 
     /// 分发回调函数
     fn dispatch(
@@ -100,7 +100,7 @@ where
 
 /// 流写入特征
 pub trait Stream: Send + Sync + 'static {
-    /// 领域事件写入流
+    /// 事件写入流
     fn write(
         &self,
         agg_type: &'static str,
@@ -108,16 +108,26 @@ pub trait Stream: Send + Sync + 'static {
         com_id: Uuid,
         revision: u64,
         evt_data: Bytes,
-    ) -> impl Future<Output = Result<(), DomainError>> + Send;
+    ) -> impl Future<Output = Result<(), UniError>> + Send;
     /// 错误反馈写入流
     fn respond(
         &self,
         agg_type: &'static str,
         agg_id: Uuid,
         com_id: Uuid,
-        res: Res,
+        res: Response,
         evt_data: Bytes,
-    ) -> impl Future<Output = Result<(), DomainError>> + Send;
+    ) -> impl Future<Output = Result<(), UniError>> + Send;
+}
+
+/// 发送者特征
+pub trait Sender<A, C>: Send + Sync + 'static
+where
+    A: Aggregate,
+    C: CommandEnum<A = A>,
+{
+    /// 发送命令
+    fn send(&self, agg_id: Uuid, com_id: Uuid, com: C) -> impl Future<Output = Response> + Send;
 }
 
 /// 配置特征
@@ -126,53 +136,4 @@ pub trait Config: Sized + 'static {
     fn get() -> Self;
     /// 重载配置
     fn reload();
-}
-
-impl<F, Fut> Restore for F
-where
-    F: Fn(&'static str, i64) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<AHashMap<Uuid, AHashSet<Uuid>>, DomainError>> + Send + 'static,
-{
-    type Fut = Fut;
-
-    #[inline]
-    fn restore(&self, agg_type: &'static str, latest: i64) -> Self::Fut {
-        self(agg_type, latest)
-    }
-}
-
-impl<F, Fut> Load for F
-where
-    F: Fn(&'static str, Uuid) -> Fut + Send + Sync + Copy + 'static,
-    Fut: Future<Output = Result<Vec<Vec<u8>>, DomainError>> + Send + 'static,
-{
-    type Fut = Fut;
-
-    #[inline]
-    fn load(&self, agg_type: &'static str, agg_id: Uuid) -> Self::Fut {
-        self(agg_type, agg_id)
-    }
-}
-
-impl<A, E, L, F, Fut> Dispatch<A, E, L> for F
-where
-    A: Aggregate,
-    E: EventEnum<A = A>,
-    L: Load,
-    F: Fn(&'static str, Uuid, Vec<u8>, A, L) -> Fut + Send + Sync + Copy + 'static,
-    Fut: Future<Output = Result<(A, E), DomainError>> + Send + 'static,
-{
-    type Fut = Fut;
-
-    #[inline(always)]
-    fn dispatch(
-        &self,
-        agg_type: &'static str,
-        agg_id: Uuid,
-        com_data: Vec<u8>,
-        agg: A,
-        loader: L,
-    ) -> Self::Fut {
-        self(agg_type, agg_id, com_data, agg, loader)
-    }
 }

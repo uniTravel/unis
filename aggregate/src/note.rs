@@ -1,7 +1,7 @@
 use unis::{
     BINCODE_CONFIG,
     domain::{Command, Event, Load},
-    errors::DomainError,
+    errors::UniError,
 };
 use unis_macros::{aggregate, command, command_enum, event, event_enum};
 use uuid::Uuid;
@@ -61,7 +61,7 @@ impl Command for CreateNote {
     type A = Note;
     type E = NoteCreated;
 
-    fn check(&self, _agg: &Self::A) -> Result<(), DomainError> {
+    fn check(&self, _agg: &Self::A) -> Result<(), UniError> {
         Ok(())
     }
 
@@ -84,7 +84,7 @@ impl Command for ChangeNote {
     type A = Note;
     type E = NoteChanged;
 
-    fn check(&self, _agg: &Self::A) -> Result<(), DomainError> {
+    fn check(&self, _agg: &Self::A) -> Result<(), UniError> {
         Ok(())
     }
 
@@ -107,7 +107,7 @@ pub async fn dispatcher(
     com_data: Vec<u8>,
     mut agg: Note,
     loader: impl Load,
-) -> Result<(Note, NoteEvent), DomainError> {
+) -> Result<(Note, NoteEvent), UniError> {
     let (com, _): (NoteCommand, _) = bincode::decode_from_slice(&com_data, BINCODE_CONFIG)?;
     match com {
         NoteCommand::Create(com) => {
@@ -115,9 +115,11 @@ pub async fn dispatcher(
             Ok((agg, NoteEvent::Created(evt)))
         }
         NoteCommand::Change(com) => {
-            let ds = loader.load(agg_type, agg_id).await?;
-            for evt_data in ds {
-                replay(&mut agg, evt_data)?;
+            if agg.revision == u64::MAX {
+                let ds = loader.load(agg_type, agg_id).await?;
+                for evt_data in ds {
+                    replay(&mut agg, evt_data)?;
+                }
             }
             let evt = Dispatcher::<1>::new().execute(com, &mut agg)?;
             Ok((agg, NoteEvent::Changed(evt)))
