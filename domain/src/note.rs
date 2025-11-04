@@ -3,7 +3,7 @@ use unis::{
     domain::{Command, Event, Load},
     errors::UniError,
 };
-use unis_macros::{aggregate, command, command_enum, event, event_enum};
+use unis_macros::*;
 use uuid::Uuid;
 
 #[aggregate]

@@ -98,7 +98,7 @@ where
         restore: impl Restore,
         mut rx: UnboundedReceiver<Com>,
     ) {
-        let agg_type = std::any::type_name::<A>();
+        let agg_type = A::topic();
         // TODO：尚未启用信号量
         let pool = Arc::new(BufferPool::new(4096, cfg.sems));
         let latest = cfg.latest;
@@ -107,6 +107,7 @@ where
         let mut interval = interval_at(start, Duration::from_secs(cfg.interval));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
+        debug!("开始恢复聚合{agg_type}的命令操作记录");
         match restore.restore(agg_type, latest).await {
             Ok(agg_coms) => {
                 for (agg_id, coms) in agg_coms {

@@ -45,6 +45,7 @@ fn load_subscriber() -> SubscriberConfig {
             panic!("加载'bootstrap'配置失败");
         }
     };
+    let replicas = config.get("replicas").unwrap_or(3);
     let aggs = config.get("aggs").unwrap_or(16);
     let timeout = config.get("timeout").unwrap_or(Duration::from_secs(45));
     let subscriber = load_named_config(&config, "subscriber");
@@ -58,6 +59,7 @@ fn load_subscriber() -> SubscriberConfig {
     };
     SubscriberConfig {
         bootstrap,
+        replicas,
         aggs,
         timeout,
         subscriber,
@@ -103,6 +105,7 @@ fn load_sender() -> SenderConfig {
 #[derive(Debug, Clone)]
 pub struct SubscriberConfig {
     pub bootstrap: String,
+    pub replicas: i32,
     pub aggs: usize,
     pub timeout: Duration,
     pub subscriber: NamedConfig<SubscribeConfig>,
@@ -193,7 +196,11 @@ mod tests {
     #[test]
     fn config_subscriber() {
         let cfg = SubscriberConfig::get();
-        assert_eq!(cfg.bootstrap, "localhost:9092");
+        assert_eq!(
+            cfg.bootstrap,
+            "localhost:30001,localhost:30002,localhost:30003"
+        );
+        assert_eq!(cfg.replicas, 3);
         assert_eq!(cfg.aggs, 16);
         assert_eq!(cfg.timeout, Duration::from_secs(45));
         let agg = cfg.subscriber.get("Note");
@@ -213,7 +220,10 @@ mod tests {
     #[test]
     fn config_sender() {
         let cfg = SenderConfig::get();
-        assert_eq!(cfg.bootstrap, "localhost:9092");
+        assert_eq!(
+            cfg.bootstrap,
+            "localhost:30001,localhost:30002,localhost:30003"
+        );
         assert_eq!(cfg.hostname, "");
         assert_eq!(cfg.timeout, Duration::from_secs(45));
         let agg = cfg.sender.get("Note");

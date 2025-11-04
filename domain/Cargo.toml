@@ -1,0 +1,18 @@
+[package]
+name = "domain"
+publish = false
+
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+unis.workspace = true
+unis-macros.workspace = true
+
+tokio.workspace = true
+uuid.workspace = true
+bincode.workspace = true
+ahash.workspace = true
+validator.workspace = true

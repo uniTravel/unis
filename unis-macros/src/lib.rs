@@ -90,6 +90,22 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
             }
             fn id(&self) -> ::uuid::Uuid { self.id }
             fn revision(&self) -> u64 { self.revision }
+            fn topic() -> &'static str {
+                static NAME: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+                    std::any::type_name::<#struct_name>().replace("::", ".")
+                });
+                &NAME
+            }
+            fn topic_com() -> &'static str {
+                static NAME: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+                    let agg_type = std::any::type_name::<#struct_name>().replace("::", ".");
+                    let mut topic = String::with_capacity(agg_type.len() + 8);
+                    topic.push_str(&agg_type);
+                    topic.push_str("-command");
+                    topic
+                });
+                &NAME
+            }
         }
     };
 

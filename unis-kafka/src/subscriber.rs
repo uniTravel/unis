@@ -4,7 +4,7 @@ use crate::{
     commit::{Commit, commit_coordinator},
     config::SubscriberConfig,
     reader::restore,
-    stream::Stream,
+    stream::Writer,
 };
 use futures::StreamExt;
 use rdkafka::{
@@ -61,24 +61,22 @@ where
 {
     /// 启动订阅者
     pub async fn launch(dispatcher: D, loader: L) {
-        let agg_type = std::any::type_name::<A>();
-        let cfg_name = agg_type.rsplit("::").next().expect("获取聚合名称失败");
+        let agg_type = A::topic();
+        let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
         let settings = SUBSCRIBER_CONFIG
             .cc
             .get(cfg_name)
             .expect("获取订阅者消费配置失败");
         let cfg = SUBSCRIBER_CONFIG.subscriber.get(cfg_name);
-        let mut topic = String::with_capacity(agg_type.len() + 8);
-        topic.push_str(agg_type);
-        topic.push_str("-command");
+        let topic = A::topic_com();
         let mut config = ClientConfig::new();
         for (key, value) in settings {
             config.set(key, value);
         }
         config.set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap);
-        config.set("group.id", &topic);
+        config.set("group.id", topic);
         let cc: Arc<StreamConsumer> = Arc::new(config.create().expect("订阅者消费创建失败"));
-        cc.subscribe(&[&topic]).expect("订阅命令流失败");
+        cc.subscribe(&[topic]).expect("订阅命令流失败");
         info!("成功订阅{topic}命令流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Com>();
@@ -91,7 +89,7 @@ where
             &cfg,
             dispatcher,
             loader,
-            Arc::new(Stream::new(&cfg)),
+            Arc::new(Writer::new(&cfg)),
             restore,
             rx,
         )

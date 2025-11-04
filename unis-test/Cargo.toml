@@ -1,5 +1,5 @@
 [package]
-name = "aggregate"
+name = "unis-test"
 publish = false
 
 edition.workspace = true
@@ -16,3 +16,4 @@ uuid.workspace = true
 bincode.workspace = true
 ahash.workspace = true
 validator.workspace = true
+tracing.workspace = true

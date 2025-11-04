@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["unis", "unis-macros", "unis-kafka", "aggregate"]
+members = ["unis", "unis-macros", "unis-kafka", "unis-test", "domain"]
 default-members = ["unis", "unis-macros", "unis-kafka"]
 
 [workspace.package]
@@ -26,6 +26,7 @@ crossbeam = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 bincode = "2.0"
 bytes = "1.10"
+home = "0.5"
 
 tokio = { version = "1.0", features = ["full"] }
 futures = "0.3"
@@ -36,3 +37,5 @@ thiserror = "2.0"
 
 config = "0.15"
 validator = { version = "0.20", features = ["derive"] }
+
+rstest = "0.26"

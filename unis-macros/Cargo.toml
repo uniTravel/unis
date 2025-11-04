@@ -14,5 +14,3 @@ proc-macro = true
 [dependencies]
 syn = { version = "2.0", features = ["full"] }
 quote = "1.0"
-
-uuid.workspace = true

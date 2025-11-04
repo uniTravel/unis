@@ -16,6 +16,10 @@ pub trait Aggregate: Send + 'static {
     fn id(&self) -> Uuid;
     /// 获取 revision
     fn revision(&self) -> u64;
+    /// 获取聚合类型主题
+    fn topic() -> &'static str;
+    /// 获取聚合类型命令主题
+    fn topic_com() -> &'static str;
 }
 
 /// 事件特征
@@ -121,11 +125,13 @@ pub trait Stream: Send + Sync + 'static {
 }
 
 /// 发送者特征
-pub trait Sender<A, C>: Send + Sync + 'static
+pub trait Request<A, C>: Send + Sync + 'static
 where
     A: Aggregate,
     C: CommandEnum<A = A>,
 {
+    /// 构造函数
+    fn new() -> impl Future<Output = Self> + Send;
     /// 发送命令
     fn send(&self, agg_id: Uuid, com_id: Uuid, com: C) -> impl Future<Output = Response> + Send;
 }

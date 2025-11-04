@@ -26,7 +26,7 @@ use tracing::{debug, error, info, warn};
 use unis::{
     BINCODE_CONFIG, Response,
     config::SendConfig,
-    domain::{self, Aggregate, CommandEnum, Config},
+    domain::{Aggregate, CommandEnum, Config, Request},
     errors::UniError,
     pool::BufferPool,
 };
@@ -70,23 +70,30 @@ enum Todo {
 }
 
 /// 发送者结构
-pub struct Sender<A: Aggregate> {
+pub struct Sender<A, C>
+where
+    A: Aggregate + Sync,
+    C: CommandEnum<A = A>,
+{
     producer: Arc<FutureProducer>,
-    topic: String,
+    topic: &'static str,
     pool: Arc<BufferPool>,
     tx: mpsc::UnboundedSender<Todo>,
     _marker_a: PhantomData<A>,
+    _marker_c: PhantomData<C>,
 }
 
-impl<A: Aggregate> Sender<A> {
+impl<A, C> Request<A, C> for Sender<A, C>
+where
+    A: Aggregate + Sync,
+    C: CommandEnum<A = A> + Sync + 'static,
+{
     /// 构造函数
-    pub async fn new() -> Self {
-        let agg_type = std::any::type_name::<A>();
-        let cfg_name = agg_type.rsplit("::").next().expect("获取聚合名称失败");
+    async fn new() -> Self {
+        let agg_type = A::topic();
+        let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
         let cfg = SENDER_CONFIG.sender.get(cfg_name);
-        let mut topic = String::with_capacity(agg_type.len() + 8);
-        topic.push_str(agg_type);
-        topic.push_str("-command");
+        let topic = A::topic_com();
         let producer = match cfg.hotspot {
             true => Arc::new(CP_CONFIG.create().expect("命令生产者创建失败")),
             false => SHARED.clone(),
@@ -116,15 +123,10 @@ impl<A: Aggregate> Sender<A> {
             pool,
             tx,
             _marker_a: PhantomData,
+            _marker_c: PhantomData,
         }
     }
-}
 
-impl<A, C> domain::Sender<A, C> for Sender<A>
-where
-    A: Aggregate + Sync,
-    C: CommandEnum<A = A>,
-{
     async fn send(&self, agg_id: Uuid, com_id: Uuid, com: C) -> Response {
         let mut buf = self.pool.get();
         match loop {

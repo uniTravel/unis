@@ -29,4 +29,7 @@ thiserror.workspace = true
 config.workspace = true
 
 [dev-dependencies]
-aggregate = { path = "../aggregate" }
+domain = { path = "../domain" }
+unis-test = { path = "../unis-test" }
+home.workspace = true
+rstest.workspace = true

@@ -33,12 +33,12 @@ static TP_CONFIG: LazyLock<ClientConfig> = LazyLock::new(|| {
     config
 });
 
-pub(crate) struct Stream {
+pub(crate) struct Writer {
     topic_tx: mpsc::UnboundedSender<TopicTask>,
     producer: Arc<FutureProducer>,
 }
 
-impl Stream {
+impl Writer {
     pub fn new(cfg: &SubscribeConfig) -> Self {
         LazyLock::force(&TOPIC_TX);
         let producer = match cfg.hotspot {
@@ -52,7 +52,7 @@ impl Stream {
     }
 }
 
-impl domain::Stream for Stream {
+impl domain::Stream for Writer {
     async fn write(
         &self,
         agg_type: &'static str,
@@ -67,7 +67,7 @@ impl domain::Stream for Stream {
             }
         }
 
-        let mut buf = [0u8; 1];
+        let mut buf = [0u8; 4];
         encode_into_slice(Response::Success, &mut buf, BINCODE_HEADER)?;
         let record = FutureRecord::to(agg_type)
             .payload(evt_data.as_ref())
@@ -107,7 +107,7 @@ impl domain::Stream for Stream {
         res: Response,
         evt_data: Bytes,
     ) -> Result<(), UniError> {
-        let mut buf = [0u8; 1];
+        let mut buf = [0u8; 4];
         encode_into_slice(res, &mut buf, BINCODE_HEADER)?;
         let record = FutureRecord::to(agg_type)
             .payload(evt_data.as_ref())

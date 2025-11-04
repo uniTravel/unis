@@ -12,10 +12,23 @@ pub mod reader;
 pub mod sender;
 pub mod subscriber;
 
-use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
+#[cfg(test)]
+mod tests;
 
-/// bincode 定长消息头配置
-pub const BINCODE_HEADER: Configuration<LittleEndian, Fixint, Limit<1>> =
-    bincode::config::standard()
-        .with_fixed_int_encoding()
-        .with_limit::<1>();
+use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
+use rdkafka::{ClientConfig, admin::AdminClient, client::DefaultClientContext};
+use std::sync::LazyLock;
+
+const BINCODE_HEADER: Configuration<LittleEndian, Fixint, Limit<4>> = bincode::config::standard()
+    .with_fixed_int_encoding()
+    .with_limit::<4>();
+
+static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
+    ClientConfig::new()
+        .set(
+            "bootstrap.servers",
+            &subscriber::SUBSCRIBER_CONFIG.bootstrap,
+        )
+        .create()
+        .expect("管理客户端创建失败")
+});
