@@ -14,7 +14,7 @@ use rdkafka::{
 };
 use std::sync::{Arc, LazyLock};
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::{debug, error};
 use unis::{Response, config::SubscribeConfig, domain, errors::UniError};
 use uuid::Uuid;
 
@@ -63,7 +63,7 @@ impl domain::Stream for Writer {
     ) -> Result<(), UniError> {
         if revision == u64::MAX {
             if let Err(e) = self.topic_tx.send(TopicTask { agg_type, agg_id }) {
-                warn!("发送聚合主题{agg_type}-{agg_id}失败：{e}");
+                error!("发送聚合主题 {agg_type}-{agg_id} 失败：{e}");
             }
         }
 
@@ -94,7 +94,7 @@ impl domain::Stream for Writer {
                      offset,
                      timestamp: _,
                  }| {
-                    debug!("聚合{agg_id}命令{com_id}的事件写入分区{partition}偏移{offset}")
+                    debug!("类型 {agg_type} 分区 {partition}：聚合 {agg_id} 命令 {com_id} 生成的事件写到偏移 {offset}")
                 },
             )
     }
@@ -134,7 +134,7 @@ impl domain::Stream for Writer {
                      offset,
                      timestamp: _,
                  }| {
-                    debug!("聚合{agg_id}命令{com_id}的事件写入分区{partition}偏移{offset}")
+                    debug!("类型 {agg_type} 分区 {partition}：聚合 {agg_id} 命令 {com_id} 生成的反馈事件写到偏移 {offset}")
                 },
             )
     }

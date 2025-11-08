@@ -107,7 +107,7 @@ where
         let mut interval = interval_at(start, Duration::from_secs(cfg.interval));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-        debug!("开始恢复聚合{agg_type}的命令操作记录");
+        debug!("开始恢复类型 {agg_type} 的命令操作记录");
         match restore.restore(agg_type, latest).await {
             Ok(agg_coms) => {
                 for (agg_id, coms) in agg_coms {
@@ -126,11 +126,11 @@ where
                 }
             }
             Err(e) => {
-                error!("恢复聚合{agg_type}命令操作记录失败：{e}");
+                error!("恢复类型 {agg_type} 命令操作记录失败：{e}");
                 panic!("恢复命令操作记录失败");
             }
         }
-        info!("成功恢复聚合{agg_type}最近{latest}分钟的命令操作记录");
+        info!("成功恢复类型 {agg_type} 最近 {latest} 分钟的命令操作记录");
 
         loop {
             tokio::select! {
@@ -157,7 +157,7 @@ where
                             if let Some((agg_tx, instant)) = caches.get_mut(&agg_id) {
                                 *instant = Instant::now();
                                 if let Err(e) = agg_tx.send(Com{agg_id, com_id, com_data}) {
-                                    warn!("发送聚合{agg_id}命令{com_id}失败：{e}");
+                                    error!("发送聚合 {agg_id} 命令 {com_id} 失败：{e}");
                                 }
                             } else {
                                 let (agg_tx, agg_rx) = mpsc::unbounded_channel::<Com>();
@@ -172,7 +172,7 @@ where
                                     agg_rx,
                                 ));
                                 if let Err(e) = agg_tx.send(Com{agg_id, com_id, com_data}) {
-                                    warn!("发送聚合{agg_id}命令{com_id}失败：{e}");
+                                    error!("发送聚合 {agg_id} 命令 {com_id} 失败：{e}");
                                 }
                                 caches.insert(agg_id, (agg_tx, Instant::now()));
                             }
@@ -201,18 +201,18 @@ where
             com_data,
         }) = agg_rx.recv().await
         {
-            info!("开始处理聚合{agg_id}命令{com_id}");
+            info!("开始处理聚合 {agg_id} 命令 {com_id}");
             if coms.contains(&com_id) {
-                warn!("重复提交聚合{agg_id}命令{com_id}错误");
+                warn!("重复提交聚合 {agg_id} 命令 {com_id}");
                 match stream
                     .respond(agg_type, agg_id, com_id, Response::Duplicate, EMPTY_BYTES)
                     .await
                 {
                     Ok(()) => {
-                        info!("重复提交聚合{agg_id}命令{com_id}错误反馈成功");
+                        info!("重复提交聚合 {agg_id} 命令 {com_id} 反馈成功");
                     }
                     Err(e) => {
-                        warn!("重复提交聚合{agg_id}命令{com_id}错误反馈失败：{e}");
+                        error!("重复提交聚合 {agg_id} 命令 {com_id} 反馈失败：{e}");
                     }
                 }
             } else {
@@ -221,7 +221,7 @@ where
                     .await
                 {
                     Ok((mut na, evt)) => {
-                        debug!("聚合{agg_id}命令{com_id}预处理成功");
+                        debug!("聚合 {agg_id} 命令 {com_id} 预处理成功");
                         let mut buf = pool.get();
                         match loop {
                             match bincode::encode_into_slice(&evt, buf.as_mut(), BINCODE_CONFIG) {
@@ -238,42 +238,44 @@ where
                                 .await
                             {
                                 Ok(()) => {
-                                    info!("聚合{agg_id}命令{com_id}写入成功");
+                                    info!("聚合 {agg_id} 命令 {com_id} 写入成功");
                                     na.next();
                                     agg = na;
                                     coms.insert(com_id);
                                 }
                                 Err(e) => {
-                                    warn!("聚合{agg_id}命令{com_id}写入失败：{e}");
+                                    error!("聚合 {agg_id} 命令 {com_id} 写入失败：{e}");
                                     let evt_data = Bytes::from(e.to_string());
                                     match stream
                                         .respond(agg_type, agg_id, com_id, e.response(), evt_data)
                                         .await
                                     {
                                         Ok(()) => {
-                                            info!("聚合{agg_id}命令{com_id}写入失败反馈成功");
+                                            info!("聚合 {agg_id} 命令 {com_id} 写入失败反馈成功");
                                             coms.insert(com_id);
                                         }
                                         Err(e) => {
-                                            warn!("聚合{agg_id}命令{com_id}写入失败反馈失败：{e}");
+                                            error!(
+                                                "聚合 {agg_id} 命令 {com_id} 写入失败反馈失败：{e}"
+                                            );
                                         }
                                     }
                                 }
                             },
                             Err(e) => {
-                                warn!("聚合{agg_id}命令{com_id}事件序列化错误：{e}");
+                                error!("聚合 {agg_id} 命令 {com_id} 事件序列化错误：{e}");
                                 let evt_data = Bytes::from(e.to_string());
                                 match stream
                                     .respond(agg_type, agg_id, com_id, e.response(), evt_data)
                                     .await
                                 {
                                     Ok(()) => {
-                                        info!("聚合{agg_id}命令{com_id}事件序列化错误反馈成功");
+                                        info!("聚合 {agg_id} 命令 {com_id} 事件序列化错误反馈成功");
                                         coms.insert(com_id);
                                     }
                                     Err(e) => {
-                                        warn!(
-                                            "聚合{agg_id}命令{com_id}事件序列化错误反馈失败：{e}"
+                                        error!(
+                                            "聚合 {agg_id} 命令 {com_id} 事件序列化错误反馈失败：{e}"
                                         );
                                     }
                                 }
@@ -282,18 +284,18 @@ where
                         pool.put(buf);
                     }
                     Err(e) => {
-                        warn!("聚合{agg_id}命令{com_id}预处理错误：{e}");
+                        error!("聚合 {agg_id} 命令 {com_id} 预处理错误：{e}");
                         let evt_data = Bytes::from(e.to_string());
                         match stream
                             .respond(agg_type, agg_id, com_id, e.response(), evt_data)
                             .await
                         {
                             Ok(()) => {
-                                info!("聚合{agg_id}命令{com_id}预处理错误反馈成功");
+                                info!("聚合 {agg_id} 命令 {com_id} 预处理错误反馈成功");
                                 coms.insert(com_id);
                             }
                             Err(e) => {
-                                warn!("聚合{agg_id}命令{com_id}预处理错误反馈失败：{e}");
+                                error!("聚合 {agg_id} 命令 {com_id} 预处理错误反馈失败：{e}");
                             }
                         }
                     }

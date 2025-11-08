@@ -1,8 +1,6 @@
-use std::path::PathBuf;
-
-use tracing::{info, warn};
-
 use crate::command::CommandBuilder;
+use std::path::PathBuf;
+use tracing::{info, warn};
 
 pub struct KubeCluster {
     pub namespace: String,
@@ -137,7 +135,7 @@ impl HelmRelease {
             info!("成功卸载 Helm 发布 {}", self.name);
             Ok(())
         } else if stderr.contains("not found") {
-            warn!("Helm 发布 {} 不存在", self.name);
+            info!("Helm 发布 {} 不存在", self.name);
             Ok(())
         } else {
             Err(format!(
@@ -160,7 +158,6 @@ impl HelmRelease {
         if success {
             Ok(stdout)
         } else if stderr.contains("not found") {
-            warn!("Helm 发布 {} 不存在", self.name);
             Err(format!("Helm 发布 {} 不存在", self.name))
         } else {
             Err(format!(

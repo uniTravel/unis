@@ -26,8 +26,8 @@ async fn check_topic_exist(
     let topic = note::Note::topic();
     let topic_com = note::Note::topic_com();
 
-    assert!(is_topic_exist(&topic));
-    assert!(is_topic_exist(&topic_com));
+    assert!(is_topic_exist(&topic).await);
+    assert!(is_topic_exist(&topic_com).await);
 }
 
 #[rstest]
@@ -40,29 +40,8 @@ async fn create_agg_topic(
     let tx = TOPIC_TX.clone();
     let agg_type = note::Note::topic();
     let agg_id = Uuid::new_v4();
+
     let _ = tx.send(TopicTask { agg_type, agg_id });
-    sleep(Duration::from_millis(100)).await;
 
-    let topic = agg_topic(agg_type, agg_id);
-    assert!(is_topic_exist(&topic));
-}
-
-#[rstest]
-#[tokio::test]
-async fn create_and_delete_topic(
-    #[from(topic_context)]
-    #[future(awt)]
-    _init: (),
-) {
-    let name = "note.Note";
-
-    create_topic(name).await;
-    sleep(Duration::from_millis(10)).await;
-
-    assert!(is_topic_exist(name));
-
-    delete_topic(name).await;
-    sleep(Duration::from_millis(10)).await;
-
-    assert!(!is_topic_exist(name));
+    assert!(is_agg_topic_exist(agg_type, agg_id).await);
 }

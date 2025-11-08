@@ -9,7 +9,7 @@ use tokio::{
     sync::mpsc,
     time::{Duration, Instant},
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info};
 
 pub(crate) struct Commit {
     topic: String,
@@ -86,11 +86,11 @@ async fn commit_batch(
 ) {
     for ((topic, partition), offset) in batch.drain() {
         if let Err(e) = tpl.add_partition_offset(&topic, partition, Offset::Offset(offset)) {
-            warn!("添加偏移量{offset}到主题分区{topic}|{partition}失败：{e}");
+            error!("添加偏移量 {offset} 到主题分区 {topic}|{partition} 失败：{e}");
         }
     }
 
     if let Err(e) = consumer.commit(&tpl, CommitMode::Async) {
-        warn!("提交失败: {e}");
+        error!("提交失败: {e}");
     }
 }

@@ -2,15 +2,15 @@
 
 use crate::{pool::ConsumerPool, subscriber::SUBSCRIBER_CONFIG};
 use ahash::{AHashMap, AHashSet};
-use rdkafka::{Message, TopicPartitionList, consumer::Consumer, message::Headers};
+use rdkafka::{Message, Offset, TopicPartitionList, consumer::Consumer, message::Headers};
 use std::{sync::LazyLock, time::SystemTime};
-use tracing::debug;
+use tracing::{debug, error};
 use unis::errors::UniError;
 use uuid::Uuid;
 
 static POOL: LazyLock<ConsumerPool> = LazyLock::new(|| ConsumerPool::new());
 
-/// 加载事件流
+/// 加载聚合事件流
 pub async fn load(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, UniError> {
     let mut topic = String::with_capacity(agg_type.len() + 37);
     topic.push_str(agg_type);
@@ -20,10 +20,8 @@ pub async fn load(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, 
     let mut tpl = TopicPartitionList::new();
     tpl.add_partition_offset(&topic, 0, rdkafka::Offset::Beginning)
         .map_err(|e| UniError::ReadError(e.to_string()))?;
-    debug!("从消费者池获取消费者");
     let guard = POOL.get()?;
     let consumer = guard.into_inner();
-    debug!("开始将消费者指派到给{topic}主题");
     consumer
         .assign(&tpl)
         .map_err(|e| UniError::ReadError(e.to_string()))?;
@@ -36,7 +34,7 @@ pub async fn load(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, 
         return Err(UniError::ReadError("数据为空".to_owned()));
     }
 
-    debug!("从聚合事件流{topic}读取数据");
+    debug!("开始从聚合 {topic} 读取事件流数据");
     let mut msgs = Vec::new();
     loop {
         match consumer.poll(SUBSCRIBER_CONFIG.timeout) {
@@ -45,16 +43,17 @@ pub async fn load(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, 
                     msgs.push(payload.to_vec());
                 }
                 if msg.offset() == high {
+                    debug!("读到聚合 {topic} {} 条事件流数据", msgs.len());
                     break;
                 }
             }
             Some(Err(e)) => {
-                debug!("聚合事件流{topic}数据错误：{e}");
+                debug!("聚合 {topic} 事件流数据错误：{e}");
                 return Err(UniError::ReadError(e.to_string()));
             }
             None => {
-                debug!("聚合事件流{topic}未取到数据");
-                return Err(UniError::ReadError("聚合事件流未取到数据".to_string()));
+                debug!("结束聚合 {topic} 事件流数据读取");
+                return Err(UniError::ReadError("聚合事件流未读到数据".to_string()));
             }
         }
     }
@@ -70,43 +69,78 @@ pub(crate) async fn restore(
     let mut tpl = TopicPartitionList::new();
     let mut watermarks = AHashMap::new();
 
-    debug!("从消费者池获取消费者");
     let guard = POOL.get()?;
     let consumer = guard.into_inner();
 
     let metadata = consumer
         .fetch_metadata(Some(agg_type), SUBSCRIBER_CONFIG.timeout)
         .map_err(|e| UniError::ReadError(e.to_string()))?;
-    for partition in metadata.topics()[0].partitions() {
-        let pid = partition.id();
-        tpl.add_partition(agg_type, pid);
-        let (_, high) = consumer
-            .fetch_watermarks(agg_type, pid, SUBSCRIBER_CONFIG.timeout)
-            .map_err(|e| UniError::ReadError(e.to_string()))?;
-        watermarks.insert(pid, high);
-    }
-    debug!("开始将消费者指派到给{agg_type}主题");
-    consumer
-        .assign(&tpl)
-        .map_err(|e| UniError::ReadError(e.to_string()))?;
-
     let start_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_err(|e| UniError::ReadError(e.to_string()))?
         .as_millis() as i64
         - (latest * 60 * 1000);
 
+    for partition in metadata.topics()[0].partitions() {
+        let pid = partition.id();
+        let mut seek_tpl = TopicPartitionList::new();
+        seek_tpl
+            .add_partition_offset(agg_type, pid, Offset::Offset(start_time))
+            .map_err(|e| UniError::ReadError(e.to_string()))?;
+        let offset = if let Some(tp) = consumer
+            .offsets_for_times(seek_tpl, SUBSCRIBER_CONFIG.timeout)
+            .map_err(|e| UniError::ReadError(e.to_string()))?
+            .elements()
+            .first()
+        {
+            match tp.offset() {
+                Offset::Offset(o) => {
+                    debug!("类型 {agg_type} 分区 {pid}: 起始消费偏移 {o}");
+                    Offset::Offset(o)
+                }
+                Offset::End => {
+                    debug!("类型 {agg_type} 分区 {pid}: 时间戳在最晚消息之后，从最新位置消费");
+                    Offset::End
+                }
+                Offset::Beginning => {
+                    debug!("类型 {agg_type} 分区 {pid}: 时间戳在最早消息之前，从开始消费");
+                    Offset::Beginning
+                }
+                Offset::Stored => {
+                    debug!("类型 {agg_type} 分区 {pid}: 使用存储的偏移");
+                    Offset::Stored
+                }
+                Offset::Invalid => {
+                    debug!("类型 {agg_type} 分区 {pid}: 无效偏移，从开始消费");
+                    Offset::Beginning
+                }
+                Offset::OffsetTail(c) => {
+                    debug!("类型 {agg_type} 分区 {pid}: 回溯 {c} 条消息");
+                    Offset::OffsetTail(c)
+                }
+            }
+        } else {
+            debug!("类型 {agg_type} 分区 {pid}: 未取得偏移，从最新位置消费");
+            Offset::End
+        };
+
+        tpl.add_partition_offset(agg_type, pid, offset)
+            .map_err(|e| UniError::ReadError(e.to_string()))?;
+        let (low, high) = consumer
+            .fetch_watermarks(agg_type, pid, SUBSCRIBER_CONFIG.timeout)
+            .map_err(|e| UniError::ReadError(e.to_string()))?;
+        debug!("类型 {agg_type} 分区 {pid} 水位：{low} ~ {high}");
+        if offset != Offset::End {
+            watermarks.insert(pid, high);
+        }
+    }
+
     consumer
-        .seek_partitions(
-            consumer
-                .offsets_for_timestamp(start_time, SUBSCRIBER_CONFIG.timeout)
-                .map_err(|e| UniError::ReadError(e.to_string()))?,
-            SUBSCRIBER_CONFIG.timeout,
-        )
+        .assign(&tpl)
         .map_err(|e| UniError::ReadError(e.to_string()))?;
 
-    debug!("从聚合类型事件流读取数据");
-    loop {
+    debug!("开始从类型 {agg_type} 读取事件流数据");
+    while watermarks.len() > 0 {
         match consumer.poll(SUBSCRIBER_CONFIG.timeout) {
             Some(Ok(msg)) => {
                 let key = msg
@@ -133,23 +167,24 @@ pub(crate) async fn restore(
                     agg_coms.insert(agg_id, coms);
                 }
                 let pid = msg.partition();
-                if msg.offset() == watermarks[&pid] {
+                debug!(
+                    "类型 {agg_type} 分区 {pid}：偏移 {} 读到聚合 {agg_id}",
+                    msg.offset()
+                );
+                if msg.offset() + 1 == watermarks[&pid] {
                     watermarks.remove(&pid);
-                }
-                if watermarks.len() == 0 {
-                    break;
+                    debug!("消费到高水位，移除类型 {agg_type} 分区 {pid}");
                 }
             }
             Some(Err(e)) => {
-                debug!("聚合类型事件流{agg_type}数据错误：{e}");
+                error!("类型 {agg_type} 事件流数据错误：{e}");
                 return Err(UniError::ReadError(e.to_string()));
             }
             None => {
-                debug!("聚合类型事件流{agg_type}未取到数据");
                 break;
             }
         }
     }
-
+    debug!("结束类型 {agg_type} 事件流数据读取");
     Ok(agg_coms)
 }

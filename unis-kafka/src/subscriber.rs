@@ -17,7 +17,7 @@ use std::{
     sync::{Arc, LazyLock},
 };
 use tokio::sync::{mpsc, watch};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info};
 use unis::{
     Com,
     aggregator::Aggregator,
@@ -77,13 +77,13 @@ where
         config.set("group.id", topic);
         let cc: Arc<StreamConsumer> = Arc::new(config.create().expect("订阅者消费创建失败"));
         cc.subscribe(&[topic]).expect("订阅命令流失败");
-        info!("成功订阅{topic}命令流");
+        info!("成功订阅 {topic} 命令流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Com>();
         let (commit_tx, commit_rx) = mpsc::unbounded_channel::<Commit>();
         tokio::spawn(commit_coordinator(cc.clone(), commit_rx));
         tokio::spawn(consumer(cc, tx, commit_tx));
-        info!("成功启用{agg_type}订阅者");
+        info!("成功启用类型 {agg_type} 订阅者");
 
         Aggregator::launch(
             &cfg,
@@ -94,7 +94,7 @@ where
             rx,
         )
         .await;
-        info!("成功启用{agg_type}聚合器");
+        info!("成功启用类型 {agg_type} 聚合器");
     }
 }
 
@@ -119,18 +119,18 @@ async fn consumer(
                 Ok(msg) => {
                     match process_message(&msg).await {
                         Ok((agg_id, com_id, com_data)) => {
-                            debug!("发送聚合{agg_id}命令{com_id}");
+                            debug!("发送聚合 {agg_id} 命令 {com_id}");
                             if let Err(e) = tx.send(Com{agg_id, com_id, com_data}) {
-                                warn!("发送聚合{agg_id}命令{com_id}错误：{e}");
+                                error!("发送聚合 {agg_id} 命令 {com_id} 错误：{e}");
                             }
                         }
-                        Err(e) => warn!("{e}"),
+                        Err(e) => error!("{e}"),
                     }
                     if let Err(e) = commit_tx.send(Commit::from(&msg)) {
-                        warn!("发送消费偏移量错误：{e}");
+                        error!("发送消费偏移量错误：{e}");
                     }
                 }
-                Err(e) => warn!("消息错误：{e}"),
+                Err(e) => error!("消息错误：{e}"),
             }
         }
     }

@@ -31,7 +31,7 @@ impl ConsumerPool {
             let _ = consumers.push(consumer);
         }
 
-        debug!("成功创建消费者池，预热{}个消费者", consumers.len());
+        debug!("成功创建消费者池，预热 {} 个消费者", consumers.len());
         Self { consumers }
     }
 

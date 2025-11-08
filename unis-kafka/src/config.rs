@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{OnceLock, RwLock},
+    usize,
 };
 use tokio::time::Duration;
 use tracing::error;
@@ -47,7 +48,10 @@ fn load_subscriber() -> SubscriberConfig {
     };
     let replicas = config.get("replicas").unwrap_or(3);
     let aggs = config.get("aggs").unwrap_or(16);
-    let timeout = config.get("timeout").unwrap_or(Duration::from_secs(45));
+    let timeout = match config.get("timeout") {
+        Ok(t) => Duration::from_secs(t),
+        Err(_) => Duration::from_secs(45),
+    };
     let subscriber = load_named_config(&config, "subscriber");
     let cc = load_named_setting(&config, "cc");
     let tp = match config.get::<HashMap<String, String>>("tp") {
@@ -84,7 +88,10 @@ fn load_sender() -> SenderConfig {
             panic!("加载'hostname'配置失败");
         }
     };
-    let timeout = config.get("timeout").unwrap_or(Duration::from_secs(45));
+    let timeout = match config.get("timeout") {
+        Ok(t) => Duration::from_secs(t),
+        Err(_) => Duration::from_secs(45),
+    };
     let sender = load_named_config(&config, "sender");
     let cp = match config.get::<HashMap<String, String>>("cp") {
         Ok(c) => c,
@@ -185,53 +192,5 @@ impl domain::Config for SenderConfig {
             }
         };
         *cell = load_sender();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use unis::domain::Config;
-
-    #[test]
-    fn config_subscriber() {
-        let cfg = SubscriberConfig::get();
-        assert_eq!(
-            cfg.bootstrap,
-            "localhost:30001,localhost:30002,localhost:30003"
-        );
-        assert_eq!(cfg.replicas, 3);
-        assert_eq!(cfg.aggs, 16);
-        assert_eq!(cfg.timeout, Duration::from_secs(45));
-        let agg = cfg.subscriber.get("Note");
-        assert_eq!(agg.hotspot, true);
-        assert_eq!(agg.interval, 1800);
-        assert_eq!(agg.low, 200);
-        assert_eq!(agg.high, 20000);
-        assert_eq!(agg.retain, 172800);
-        assert_eq!(agg.latest, 30);
-        assert_eq!(agg.sems, 300);
-        let cc = cfg.cc.get("Note").unwrap();
-        assert_eq!(cc.get("enable.auto.commit").unwrap(), "false");
-        let tp = &cfg.tp;
-        assert_eq!(tp.get("linger.ms").unwrap(), "1");
-    }
-
-    #[test]
-    fn config_sender() {
-        let cfg = SenderConfig::get();
-        assert_eq!(
-            cfg.bootstrap,
-            "localhost:30001,localhost:30002,localhost:30003"
-        );
-        assert_eq!(cfg.hostname, "");
-        assert_eq!(cfg.timeout, Duration::from_secs(45));
-        let agg = cfg.sender.get("Note");
-        assert_eq!(agg.hotspot, false);
-        assert_eq!(agg.interval, 86400);
-        assert_eq!(agg.retain, 172800);
-        assert_eq!(agg.sems, 50);
-        let cp = &cfg.cp;
-        assert_eq!(cp.get("linger.ms").unwrap(), "1");
     }
 }

@@ -22,7 +22,7 @@ use tokio::{
     sync::{mpsc, oneshot, watch},
     time::{Duration, Instant, MissedTickBehavior, interval_at},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use unis::{
     BINCODE_CONFIG, Response,
     config::SendConfig,
@@ -98,15 +98,15 @@ where
             true => Arc::new(CP_CONFIG.create().expect("命令生产者创建失败")),
             false => SHARED.clone(),
         };
-        info!("成功创建{topic}命令生产者");
+        info!("成功创建 {topic} 命令生产者");
 
         let mut config = ClientConfig::new();
         config.set("bootstrap.servers", &SENDER_CONFIG.bootstrap);
         config.set("group.id", format!("{agg_type}-{}", SENDER_CONFIG.hostname));
         config.set("enable.auto.commit", "false");
         let tc: Arc<StreamConsumer> = Arc::new(config.create().expect("发送者消费创建失败"));
-        tc.subscribe(&[agg_type]).expect("订阅聚合类型事件流失败");
-        info!("成功订阅{agg_type}聚合类型事件流");
+        tc.subscribe(&[agg_type]).expect("订阅类型事件流失败");
+        info!("成功订阅类型 {agg_type} 事件流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Todo>();
         let (commit_tx, commit_rx) = mpsc::unbounded_channel::<Commit>();
@@ -115,7 +115,7 @@ where
         tokio::spawn(commit_coordinator(tc.clone(), commit_rx));
         tokio::spawn(responsor(cfg, rx));
         tokio::spawn(consumer(tc, tx.clone(), commit_tx));
-        info!("成功启用{agg_type}发送者");
+        info!("成功启用类型 {agg_type} 发送者");
 
         Self {
             producer,
@@ -158,35 +158,35 @@ where
                              offset,
                              timestamp: _,
                          }| {
-                            debug!("聚合{agg_id}命令{com_id}写入分区{partition}偏移{offset}")
+                            debug!("聚合 {agg_id} 命令 {com_id} 写入分区 {partition} 偏移 {offset}")
                         },
                     )
                 {
-                    warn!("聚合{agg_id}命令{com_id}发送失败：{e}");
+                    error!("聚合 {agg_id} 命令 {com_id} 发送失败：{e}");
                     return e.response();
                 }
             }
             Err(e) => {
-                warn!("聚合{agg_id}命令{com_id}序列化错误：{e}");
+                error!("聚合 {agg_id} 命令 {com_id} 序列化错误：{e}");
                 return e.response();
             }
         }
         self.pool.put(buf);
-        info!("聚合{agg_id}命令{com_id}写入成功");
+        info!("聚合 {agg_id} 命令 {com_id} 写入成功");
 
         let (res_tx, res_rx) = oneshot::channel::<Response>();
         if let Err(e) = self.tx.send(Todo::Reply { com_id, res_tx }) {
-            warn!("聚合{agg_id}命令{com_id}请求反馈错误：{e}");
+            error!("聚合 {agg_id} 命令 {com_id} 请求反馈错误：{e}");
             return Response::SendError;
         }
 
         match res_rx.await {
             Ok(res) => {
-                info!("聚合{agg_id}命令{com_id}收到反馈");
+                info!("聚合 {agg_id} 命令 {com_id} 收到反馈");
                 res
             }
             Err(e) => {
-                warn!("聚合{agg_id}命令{com_id}接收反馈错误：{e}");
+                error!("聚合 {agg_id} 命令 {com_id} 接收反馈错误：{e}");
                 Response::SendError
             }
         }
@@ -269,16 +269,16 @@ async fn consumer(
                     match process_message(&msg).await {
                         Ok((agg_id, com_id, res)) => {
                             if let Err(e) = tx.send(Todo::Response { com_id, res }) {
-                                warn!("聚合{agg_id}命令{com_id}发送反馈错误：{e}");
+                                error!("聚合 {agg_id} 命令 {com_id} 发送反馈错误：{e}");
                             }
                         }
-                        Err(e) => warn!("{e}"),
+                        Err(e) => error!("{e}"),
                     }
                     if let Err(e) = commit_tx.send(Commit::from(&msg)) {
-                        warn!("发送消费偏移量错误：{e}");
+                        error!("发送消费偏移量错误：{e}");
                     }
                 }
-                Err(e) => warn!("消息错误：{e}"),
+                Err(e) => error!("消息错误：{e}"),
             }
         }
     }

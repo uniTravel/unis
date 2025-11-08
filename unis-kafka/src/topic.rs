@@ -5,7 +5,7 @@ use tokio::{
     sync::mpsc,
     time::{Duration, Instant},
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 pub(crate) static TOPIC_TX: LazyLock<mpsc::UnboundedSender<TopicTask>> = LazyLock::new(|| {
@@ -51,7 +51,7 @@ async fn topic_creator(mut topic_rx: mpsc::UnboundedReceiver<TopicTask>) {
                         topic.push_str(agg_type);
                         topic.push_str("-");
                         topic.push_str(&agg_id.to_string());
-                        debug!("收到聚合主题{topic}的创建任务");
+                        debug!("收到聚合主题 {topic} 的创建任务");
                         batch.push(topic);
 
                         if count == threshold {
@@ -93,6 +93,6 @@ async fn topic_batch(batch: &mut Vec<String>, opts: &AdminOptions) {
 
     debug!("开始聚合主题批量创建");
     if let Err(e) = crate::ADMIN.create_topics(&topics, opts).await {
-        warn!("批量创建聚合主题失败: {e}");
+        error!("批量创建聚合主题失败: {e}");
     }
 }
