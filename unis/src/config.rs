@@ -91,6 +91,8 @@ pub struct SubscribeConfig {
     /// 信号量
     #[validate(range(min = 7))]
     pub sems: usize,
+    /// 缓冲容量
+    pub bufs: usize,
 }
 
 impl Default for SubscribeConfig {
@@ -103,6 +105,7 @@ impl Default for SubscribeConfig {
             retain: 2 * 24 * 60 * 60,
             latest: 30,
             sems: 100,
+            bufs: 1024,
         }
     }
 }
@@ -120,15 +123,18 @@ pub struct SendConfig {
     /// 信号量
     #[validate(range(min = 7))]
     pub sems: usize,
+    /// 缓冲容量
+    pub bufs: usize,
 }
 
 impl Default for SendConfig {
     fn default() -> Self {
         Self {
             hotspot: false,
-            interval: 24 * 60 * 60,
-            retain: 2 * 24 * 60 * 60,
+            interval: 5,
+            retain: 30,
             sems: 100,
+            bufs: 1024,
         }
     }
 }

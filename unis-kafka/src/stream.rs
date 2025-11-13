@@ -6,7 +6,6 @@ use crate::{
     },
 };
 use bincode::encode_into_slice;
-use bytes::Bytes;
 use rdkafka::{
     ClientConfig,
     message::{Header, OwnedHeaders},
@@ -59,7 +58,7 @@ impl domain::Stream for Writer {
         agg_id: Uuid,
         com_id: Uuid,
         revision: u64,
-        evt_data: Bytes,
+        evt_data: &[u8],
     ) -> Result<(), UniError> {
         if revision == u64::MAX {
             if let Err(e) = self.topic_tx.send(TopicTask { agg_type, agg_id }) {
@@ -70,7 +69,7 @@ impl domain::Stream for Writer {
         let mut buf = [0u8; 4];
         encode_into_slice(Response::Success, &mut buf, BINCODE_HEADER)?;
         let record = FutureRecord::to(agg_type)
-            .payload(evt_data.as_ref())
+            .payload(evt_data)
             .key(agg_id.as_bytes())
             .headers(
                 OwnedHeaders::new_with_capacity(2)
@@ -105,12 +104,12 @@ impl domain::Stream for Writer {
         agg_id: Uuid,
         com_id: Uuid,
         res: Response,
-        evt_data: Bytes,
+        evt_data: &[u8],
     ) -> Result<(), UniError> {
         let mut buf = [0u8; 4];
         encode_into_slice(res, &mut buf, BINCODE_HEADER)?;
         let record = FutureRecord::to(agg_type)
-            .payload(evt_data.as_ref())
+            .payload(evt_data)
             .key(agg_id.as_bytes())
             .headers(
                 OwnedHeaders::new_with_capacity(2)
@@ -135,6 +134,42 @@ impl domain::Stream for Writer {
                      timestamp: _,
                  }| {
                     debug!("类型 {agg_type} 分区 {partition}：聚合 {agg_id} 命令 {com_id} 生成的反馈事件写到偏移 {offset}")
+                },
+            )
+    }
+}
+
+impl Writer {
+    #[cfg(test)]
+    pub(crate) async fn write_to_agg(
+        &self,
+        agg_type: &'static str,
+        agg_id: Uuid,
+        com_id: Uuid,
+        evt_data: &[u8],
+    ) -> Result<(), UniError> {
+        let mut topic = String::with_capacity(agg_type.len() + 37);
+        topic.push_str(agg_type);
+        topic.push_str("-");
+        topic.push_str(&agg_id.to_string());
+        let record = FutureRecord::to(&topic)
+            .payload(evt_data)
+            .key(agg_id.as_bytes())
+            .headers(OwnedHeaders::new_with_capacity(2).insert(Header {
+                key: "com_id",
+                value: Some(com_id.as_bytes()),
+            }));
+        self.producer
+            .send(record, SUBSCRIBER_CONFIG.timeout)
+            .await
+            .map_err(|(e, _)| UniError::WriteError(e.to_string()))
+            .map(
+                |Delivery {
+                     partition: _,
+                     offset,
+                     timestamp: _,
+                 }| {
+                    debug!("聚合 {topic}：命令 {com_id} 生成的事件写到偏移 {offset}")
                 },
             )
     }

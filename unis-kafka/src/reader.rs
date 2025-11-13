@@ -42,7 +42,7 @@ pub async fn load(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, 
                 if let Some(payload) = msg.payload() {
                     msgs.push(payload.to_vec());
                 }
-                if msg.offset() == high {
+                if msg.offset() + 1 == high {
                     debug!("读到聚合 {topic} {} 条事件流数据", msgs.len());
                     break;
                 }

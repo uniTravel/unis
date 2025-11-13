@@ -237,10 +237,20 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
             type A = #agg_name;
         }
 
-        fn replay(agg: &mut #agg_name, evt_data: Vec<u8>) -> Result<(), ::unis::errors::UniError> {
-            let (evt, _): (#enum_name, _) = bincode::decode_from_slice(&evt_data, BINCODE_CONFIG)?;
-            match evt {
-                #(#match_arms,)*
+        async fn replay(
+            agg_type: &'static str,
+            agg_id: ::uuid::Uuid,
+            agg: &mut #agg_name,
+            loader: impl ::unis::domain::Load,
+        ) -> Result<(), ::unis::errors::UniError> {
+            if agg.revision == u64::MAX {
+                let ds = loader.load(agg_type, agg_id).await?;
+                for evt_data in ds {
+                    let (evt, _): (#enum_name, _) = ::bincode::decode_from_slice(&evt_data, BINCODE_CONFIG)?;
+                    match evt {
+                        #(#match_arms,)*
+                    }
+                }
             }
             Ok(())
         }

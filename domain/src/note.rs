@@ -115,12 +115,7 @@ pub async fn dispatcher(
             Ok((agg, NoteEvent::Created(evt)))
         }
         NoteCommand::Change(com) => {
-            if agg.revision == u64::MAX {
-                let ds = loader.load(agg_type, agg_id).await?;
-                for evt_data in ds {
-                    replay(&mut agg, evt_data)?;
-                }
-            }
+            replay(agg_type, agg_id, &mut agg, loader).await?;
             let evt = Dispatcher::<1>::new().execute(com, &mut agg)?;
             Ok((agg, NoteEvent::Changed(evt)))
         }

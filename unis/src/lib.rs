@@ -11,10 +11,10 @@ pub mod errors;
 pub mod pool;
 
 use bincode::config::Configuration;
-use bytes::Bytes;
+use tokio::sync::OwnedSemaphorePermit;
 use uuid::Uuid;
 
-const EMPTY_BYTES: Bytes = Bytes::new();
+const EMPTY_BYTES: &[u8] = &[];
 
 /// bincode 标准配置
 pub const BINCODE_CONFIG: Configuration = bincode::config::standard();
@@ -27,6 +27,18 @@ pub struct Com {
     pub com_id: Uuid,
     /// 命令数据
     pub com_data: Vec<u8>,
+}
+
+/// 命令信号消息结构
+pub struct ComSemaphore {
+    /// 聚合 Id
+    pub agg_id: Uuid,
+    /// 命令 Id
+    pub com_id: Uuid,
+    /// 命令数据
+    pub com_data: Vec<u8>,
+    /// 命令信号许可
+    pub permit: OwnedSemaphorePermit,
 }
 
 /// 命令处理结果枚举
@@ -51,6 +63,8 @@ pub enum Response {
     ReadError = 7,
     /// 写入命令流错误
     SendError = 8,
+    /// 等待响应超时
+    Timeout = 9,
 }
 
 #[cfg(test)]

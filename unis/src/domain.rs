@@ -2,7 +2,6 @@
 
 use crate::{Response, errors::UniError};
 use ahash::{AHashMap, AHashSet};
-use bytes::Bytes;
 use std::future::Future;
 use uuid::Uuid;
 
@@ -111,7 +110,7 @@ pub trait Stream: Send + Sync + 'static {
         agg_id: Uuid,
         com_id: Uuid,
         revision: u64,
-        evt_data: Bytes,
+        evt_data: &[u8],
     ) -> impl Future<Output = Result<(), UniError>> + Send;
     /// 错误反馈写入流
     fn respond(
@@ -120,7 +119,7 @@ pub trait Stream: Send + Sync + 'static {
         agg_id: Uuid,
         com_id: Uuid,
         res: Response,
-        evt_data: Bytes,
+        evt_data: &[u8],
     ) -> impl Future<Output = Result<(), UniError>> + Send;
 }
 

@@ -28,7 +28,7 @@ impl BufferPool {
     pub fn get(&self) -> BytesMut {
         match self.queue.pop() {
             Some(mut buf) => {
-                buf.clear();
+                unsafe { buf.set_len(self.capacity) };
                 buf
             }
             None => BytesMut::with_capacity(self.capacity),
@@ -40,7 +40,7 @@ impl BufferPool {
     pub fn put(&self, mut buf: BytesMut) {
         buf.clear();
 
-        if buf.capacity() > self.capacity * 2 {
+        if buf.capacity() >= self.capacity * 2 {
             buf = BytesMut::with_capacity(self.capacity);
         }
 

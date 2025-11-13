@@ -32,8 +32,8 @@ pub(crate) static SUBSCRIBER_CONFIG: LazyLock<SubscriberConfig> =
 static SHUTDOWN_RX: LazyLock<watch::Receiver<bool>> = LazyLock::new(|| {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.unwrap();
-        shutdown_tx.send(true).unwrap();
+        tokio::signal::ctrl_c().await.expect("无法监听 Ctrl+C 信号");
+        shutdown_tx.send(true).expect("发送 Ctrl+C 信号失败");
     });
     shutdown_rx
 });
@@ -114,7 +114,6 @@ async fn consumer(
                 info!("收到关闭信号，开始优雅退出");
                 break;
             }
-            // FIXME：命令未能发送给聚合器的错误未反馈
             Some(msg) = message_stream.next() => match msg {
                 Ok(msg) => {
                     match process_message(&msg).await {

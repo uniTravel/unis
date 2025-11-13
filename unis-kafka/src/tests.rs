@@ -6,7 +6,6 @@ mod topic_test;
 
 use super::*;
 use crate::{stream::Writer, subscriber::SUBSCRIBER_CONFIG};
-use bytes::Bytes;
 use domain::note;
 use rdkafka::admin::{AdminOptions, NewTopic, TopicReplication};
 use rstest::*;
@@ -84,7 +83,7 @@ async fn is_topic_exist(name: &str) -> bool {
         if retry > max_retries {
             return false;
         }
-        sleep(Duration::from_millis(200)).await;
+        sleep(Duration::from_millis(500)).await;
         debug!("第 {retry} 次验证主题 {name} 是否存在");
     }
 }
