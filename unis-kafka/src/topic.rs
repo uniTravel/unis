@@ -5,7 +5,7 @@ use tokio::{
     sync::mpsc,
     time::{Duration, Instant},
 };
-use tracing::{debug, error, info};
+use tracing::{debug, debug_span, error, info};
 use uuid::Uuid;
 
 pub(crate) static TOPIC_TX: LazyLock<mpsc::UnboundedSender<TopicTask>> = LazyLock::new(|| {
@@ -48,11 +48,14 @@ async fn topic_creator(mut topic_rx: mpsc::UnboundedReceiver<TopicTask>) {
                 match data {
                     Some(TopicTask{agg_type, agg_id}) => {
                         let mut topic = String::with_capacity(agg_type.len() + 37);
-                        topic.push_str(agg_type);
-                        topic.push_str("-");
-                        topic.push_str(&agg_id.to_string());
-                        debug!("收到聚合主题 {topic} 的创建任务");
-                        batch.push(topic);
+                        let span = debug_span!("create_topic", agg_type, %agg_id);
+                        span.in_scope(|| {
+                            topic.push_str(agg_type);
+                            topic.push_str("-");
+                            topic.push_str(&agg_id.to_string());
+                            debug!("收到聚合主题创建任务");
+                            batch.push(topic);
+                        });
 
                         if count == threshold {
                             debug!("触及提交计数阈值，提交聚合主题创建");

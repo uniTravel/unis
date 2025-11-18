@@ -13,7 +13,7 @@ use rdkafka::{
 };
 use std::sync::{Arc, LazyLock};
 use tokio::sync::mpsc;
-use tracing::{debug, error};
+use tracing::{debug, error, instrument};
 use unis::{Response, config::SubscribeConfig, domain, errors::UniError};
 use uuid::Uuid;
 
@@ -52,6 +52,7 @@ impl Writer {
 }
 
 impl domain::Stream for Writer {
+    #[instrument(name = "stream_write", level = "debug", skip(self, revision, evt_data))]
     async fn write(
         &self,
         agg_type: &'static str,
@@ -62,7 +63,7 @@ impl domain::Stream for Writer {
     ) -> Result<(), UniError> {
         if revision == u64::MAX {
             if let Err(e) = self.topic_tx.send(TopicTask { agg_type, agg_id }) {
-                error!("发送聚合主题 {agg_type}-{agg_id} 失败：{e}");
+                error!(agg_type, %agg_id, "发送聚合主题失败：{e}");
             }
         }
 
@@ -93,11 +94,12 @@ impl domain::Stream for Writer {
                      offset,
                      timestamp: _,
                  }| {
-                    debug!("类型 {agg_type} 分区 {partition}：聚合 {agg_id} 命令 {com_id} 生成的事件写到偏移 {offset}")
+                    debug!("生成的事件写到分区 {partition} 偏移 {offset}")
                 },
             )
     }
 
+    #[instrument(name = "stream_respond", level = "debug", skip(self, res, evt_data))]
     async fn respond(
         &self,
         agg_type: &'static str,
@@ -133,7 +135,7 @@ impl domain::Stream for Writer {
                      offset,
                      timestamp: _,
                  }| {
-                    debug!("类型 {agg_type} 分区 {partition}：聚合 {agg_id} 命令 {com_id} 生成的反馈事件写到偏移 {offset}")
+                    debug!("生成的反馈事件写到分区 {partition} 偏移 {offset}")
                 },
             )
     }
@@ -141,6 +143,7 @@ impl domain::Stream for Writer {
 
 impl Writer {
     #[cfg(test)]
+    #[instrument(name = "aggregate_write", level = "debug", skip(self, evt_data))]
     pub(crate) async fn write_to_agg(
         &self,
         agg_type: &'static str,
@@ -168,9 +171,7 @@ impl Writer {
                      partition: _,
                      offset,
                      timestamp: _,
-                 }| {
-                    debug!("聚合 {topic}：命令 {com_id} 生成的事件写到偏移 {offset}")
-                },
+                 }| { debug!("生成的事件写到偏移 {offset}") },
             )
     }
 }

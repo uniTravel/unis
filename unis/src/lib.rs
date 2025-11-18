@@ -27,6 +27,8 @@ pub struct Com {
     pub com_id: Uuid,
     /// 命令数据
     pub com_data: Vec<u8>,
+    /// 追踪跨度
+    pub span: tracing::Span,
 }
 
 /// 命令信号消息结构
@@ -37,6 +39,8 @@ pub struct ComSemaphore {
     pub com_id: Uuid,
     /// 命令数据
     pub com_data: Vec<u8>,
+    /// 追踪跨度
+    pub span: tracing::Span,
     /// 命令信号许可
     pub permit: OwnedSemaphorePermit,
 }

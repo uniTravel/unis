@@ -13,7 +13,7 @@ use tokio::{
     sync::OnceCell,
     time::{Duration, sleep},
 };
-use tracing::{Level, debug, info, warn};
+use tracing::{Level, info, warn};
 use tracing_subscriber::fmt;
 use unis::{
     Response,
@@ -48,7 +48,12 @@ static STREAM: LazyLock<Writer> = LazyLock::new(|| {
 });
 
 static INTERNAL_SETUP: LazyLock<()> = LazyLock::new(|| {
-    fmt().with_test_writer().with_max_level(Level::DEBUG).init();
+    fmt()
+        .with_max_level(Level::DEBUG)
+        .with_target(false)
+        .pretty()
+        .with_test_writer()
+        .init();
     info!("启用 {} 测试日志输出", Level::DEBUG);
     LazyLock::force(&ADMIN);
     LazyLock::force(&OPTS);
@@ -84,7 +89,7 @@ async fn is_topic_exist(name: &str) -> bool {
             return false;
         }
         sleep(Duration::from_millis(500)).await;
-        debug!("第 {retry} 次验证主题 {name} 是否存在");
+        info!("第 {retry} 次验证主题 {name} 是否存在");
     }
 }
 

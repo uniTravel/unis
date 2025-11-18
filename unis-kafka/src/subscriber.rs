@@ -17,7 +17,7 @@ use std::{
     sync::{Arc, LazyLock},
 };
 use tokio::sync::{mpsc, watch};
-use tracing::{debug, error, info};
+use tracing::{Span, debug, error, info, info_span, instrument};
 use unis::{
     Com,
     aggregator::Aggregator,
@@ -60,8 +60,10 @@ where
     L: Load,
 {
     /// 启动订阅者
+    #[instrument(name = "launch_subscriber", skip_all, fields(agg_type))]
     pub async fn launch(dispatcher: D, loader: L) {
         let agg_type = A::topic();
+        Span::current().record("agg_type", agg_type);
         let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
         let settings = SUBSCRIBER_CONFIG
             .cc
@@ -82,8 +84,8 @@ where
         let (tx, rx) = mpsc::unbounded_channel::<Com>();
         let (commit_tx, commit_rx) = mpsc::unbounded_channel::<Commit>();
         tokio::spawn(commit_coordinator(cc.clone(), commit_rx));
-        tokio::spawn(consumer(cc, tx, commit_tx));
-        info!("成功启用类型 {agg_type} 订阅者");
+        tokio::spawn(consumer(agg_type, cc, tx, commit_tx));
+        info!("成功启用订阅者");
 
         Aggregator::launch(
             &cfg,
@@ -94,11 +96,13 @@ where
             rx,
         )
         .await;
-        info!("成功启用类型 {agg_type} 聚合器");
+        info!("成功启用聚合器");
     }
 }
 
+#[instrument(name = "receive_command", skip(cc, tx, commit_tx))]
 async fn consumer(
+    agg_type: &'static str,
     cc: Arc<StreamConsumer>,
     tx: mpsc::UnboundedSender<Com>,
     commit_tx: mpsc::UnboundedSender<Commit>,
@@ -118,10 +122,13 @@ async fn consumer(
                 Ok(msg) => {
                     match process_message(&msg).await {
                         Ok((agg_id, com_id, com_data)) => {
-                            debug!("发送聚合 {agg_id} 命令 {com_id}");
-                            if let Err(e) = tx.send(Com{agg_id, com_id, com_data}) {
-                                error!("发送聚合 {agg_id} 命令 {com_id} 错误：{e}");
-                            }
+                            let span = info_span!(parent: None, "handle_command", agg_type, %agg_id, %com_id);
+                            span.clone().in_scope(|| {
+                                match tx.send(Com{agg_id, com_id, com_data, span}) {
+                                    Ok(()) => info!("提交聚合命令"),
+                                    Err(e) => error!("提交聚合命令错误：{e}"),
+                                }
+                            });
                         }
                         Err(e) => error!("{e}"),
                     }

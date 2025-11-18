@@ -22,7 +22,7 @@ use tokio::{
     sync::{mpsc, oneshot, watch},
     time::{Duration, Instant, MissedTickBehavior, interval_at},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{Instrument, Span, debug, error, info, info_span, instrument, warn};
 use unis::{
     BINCODE_CONFIG, Response,
     config::SendConfig,
@@ -67,10 +67,12 @@ where
         agg_id: Uuid,
         com_id: Uuid,
         com: C,
+        span: tracing::Span,
         res_tx: oneshot::Sender<Response>,
     },
     Response {
         com_id: Uuid,
+        span: tracing::Span,
         res: Response,
     },
 }
@@ -81,6 +83,7 @@ where
     A: Aggregate + Sync,
     C: CommandEnum<A = A> + Sync + 'static,
 {
+    agg_type: &'static str,
     tx: mpsc::UnboundedSender<Todo<A, C>>,
     _marker_a: PhantomData<A>,
     _marker_c: PhantomData<C>,
@@ -91,9 +94,10 @@ where
     A: Aggregate + Sync,
     C: CommandEnum<A = A> + Sync + 'static,
 {
-    /// 构造函数
+    #[instrument(name = "build_sender", skip_all, fields(agg_type))]
     async fn new() -> Self {
         let agg_type = A::topic();
+        Span::current().record("agg_type", agg_type);
         let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
         let cfg = SENDER_CONFIG.sender.get(cfg_name);
         let topic = A::topic_com();
@@ -109,43 +113,46 @@ where
         config.set("enable.auto.commit", "false");
         let tc: Arc<StreamConsumer> = Arc::new(config.create().expect("发送者消费创建失败"));
         tc.subscribe(&[agg_type]).expect("订阅类型事件流失败");
-        info!("成功订阅类型 {agg_type} 事件流");
+        info!("成功订阅事件流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Todo<A, C>>();
         let (commit_tx, commit_rx) = mpsc::unbounded_channel::<Commit>();
         let pool = Arc::new(BufferPool::new(cfg.bufs, cfg.sems));
         tokio::spawn(commit_coordinator(tc.clone(), commit_rx));
-        tokio::spawn(Self::responsor(producer, topic, pool, agg_type, cfg, rx));
-        info!("成功启用类型 {agg_type} 响应处理器");
-        tokio::spawn(Self::consumer(tc, tx.clone(), commit_tx));
-        info!("成功启用类型 {agg_type} 发送者");
+        tokio::spawn(Self::responsor(agg_type, producer, topic, pool, cfg, rx));
+        info!("成功启用响应处理器");
+        tokio::spawn(Self::consumer(agg_type, tc, tx.clone(), commit_tx));
+        info!("成功启用发送者");
 
         Self {
+            agg_type,
             tx,
             _marker_a: PhantomData,
             _marker_c: PhantomData,
         }
     }
 
+    #[instrument(name = "send_command", skip(self, com), fields(agg_type = self.agg_type))]
     async fn send(&self, agg_id: Uuid, com_id: Uuid, com: C) -> Response {
         let (res_tx, res_rx) = oneshot::channel::<Response>();
         if let Err(e) = self.tx.send(Todo::Reply {
             agg_id,
             com_id,
             com,
+            span: Span::current(),
             res_tx,
         }) {
-            error!("聚合 {agg_id} 命令 {com_id} 请求反馈错误：{e}");
+            error!("聚合命令请求反馈错误：{e}");
             panic!("响应处理器停止工作");
         }
 
         match res_rx.await {
             Ok(res) => {
-                info!("聚合 {agg_id} 命令 {com_id} 收到反馈");
+                info!("聚合命令收到反馈");
                 res
             }
             Err(e) => {
-                error!("聚合 {agg_id} 命令 {com_id} 接收反馈错误：{e}");
+                error!("聚合命令接收反馈错误：{e}");
                 Response::Timeout
             }
         }
@@ -157,11 +164,12 @@ where
     A: Aggregate + Sync,
     C: CommandEnum<A = A> + Sync + 'static,
 {
+    #[instrument(name = "aggregate_responsor", skip(producer, topic, pool, cfg, rx))]
     async fn responsor(
+        agg_type: &'static str,
         producer: Arc<FutureProducer>,
         topic: &'static str,
         pool: Arc<BufferPool>,
-        agg_type: &str,
         cfg: SendConfig,
         mut rx: mpsc::UnboundedReceiver<Todo<A, C>>,
     ) {
@@ -179,84 +187,90 @@ where
                 }
                 data = rx.recv() => {
                     match data {
-                        Some(Todo::Reply {agg_id, com_id, com, res_tx }) => {
-                            match rs.get_mut(&com_id) {
-                                Some((Some(_), None, _)) => {
-                                    warn!("命令 {com_id} 不得重复请求反馈");
-                                    let _ = res_tx.send(Response::Duplicate);
-                                }
-                                Some((None, Some(_), _)) => {
-                                    if let Some((_, Some(res), _)) = rs.remove(&com_id) {
-                                        let _ = res_tx.send(res);
+                        Some(Todo::Reply {agg_id, com_id, com, span, res_tx }) => {
+                            async {
+                                match rs.get_mut(&com_id) {
+                                    Some((Some(_), None, _)) => {
+                                        warn!("聚合命令不得重复请求反馈");
+                                        let _ = res_tx.send(Response::Duplicate);
                                     }
-                                }
-                                Some(_) => error!("请求反馈进入非法处理分支"),
-                                None => {
-                                    let mut buf = pool.get();
-                                    match loop {
-                                        match bincode::encode_into_slice(&com, buf.as_mut(), BINCODE_CONFIG) {
-                                            Ok(len) => break Ok(&buf[..len]),
-                                            Err(EncodeError::UnexpectedEnd) => {
-                                                let new_size = buf.capacity() * 2;
-                                                buf.reserve(new_size);
-                                            }
-                                            Err(e) => break Err(UniError::EncodeError(e)),
-                                        }
-                                    } {
-                                        Ok(com_data) => {
-                                            let record = FutureRecord::to(topic)
-                                                .payload(com_data)
-                                                .key(agg_id.as_bytes())
-                                                .headers(OwnedHeaders::new_with_capacity(1).insert(Header {
-                                                    key: "com_id",
-                                                    value: Some(com_id.as_bytes()),
-                                                }));
-                                            match producer
-                                                .send(record, SENDER_CONFIG.timeout)
-                                                .await
-                                                .map_err(|(e, _)| UniError::SendError(e.to_string()))
-                                                .map(
-                                                    |Delivery {
-                                                        partition,
-                                                        offset,
-                                                        timestamp: _timestamp,
-                                                    }| {
-                                                        info!("聚合 {agg_id} 命令 {com_id} 写入分区 {partition} 偏移 {offset}");
-                                                    },
-                                                ) {
-                                                Ok(()) => {
-                                                    rs.insert(com_id, (Some(res_tx), None, Instant::now()));
-                                                }
-                                                Err(e) => {
-                                                    error!("聚合 {agg_id} 命令 {com_id} 发送失败：{e}");
-                                                    let _ = res_tx.send(e.response());
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            error!("聚合 {agg_id} 命令 {com_id} 序列化错误：{e}");
-                                            let _ = res_tx.send(e.response());
+                                    Some((None, Some(_), _)) => {
+                                        if let Some((_, Some(res), _)) = rs.remove(&com_id) {
+                                            let _ = res_tx.send(res);
                                         }
                                     }
-                                    pool.put(buf);
+                                    Some(_) => error!("请求反馈进入非法处理分支"),
+                                    None => {
+                                        let mut buf = pool.get();
+                                        match loop {
+                                            match bincode::encode_into_slice(&com, buf.as_mut(), BINCODE_CONFIG) {
+                                                Ok(len) => break Ok(&buf[..len]),
+                                                Err(EncodeError::UnexpectedEnd) => {
+                                                    buf.reserve(buf.capacity() * 2);
+                                                    unsafe {
+                                                        buf.set_len(buf.capacity());
+                                                    }
+                                                }
+                                                Err(e) => break Err(UniError::EncodeError(e)),
+                                            }
+                                        } {
+                                            Ok(com_data) => {
+                                                let record = FutureRecord::to(topic)
+                                                    .payload(com_data)
+                                                    .key(agg_id.as_bytes())
+                                                    .headers(OwnedHeaders::new_with_capacity(1).insert(Header {
+                                                        key: "com_id",
+                                                        value: Some(com_id.as_bytes()),
+                                                    }));
+                                                match producer
+                                                    .send(record, SENDER_CONFIG.timeout)
+                                                    .await
+                                                    .map_err(|(e, _)| UniError::SendError(e.to_string()))
+                                                    .map(
+                                                        |Delivery {
+                                                            partition,
+                                                            offset,
+                                                            timestamp: _timestamp,
+                                                        }| {
+                                                            info!("聚合命令写入分区 {partition} 偏移 {offset}");
+                                                        },
+                                                    ) {
+                                                    Ok(()) => {
+                                                        rs.insert(com_id, (Some(res_tx), None, Instant::now()));
+                                                    }
+                                                    Err(e) => {
+                                                        error!("聚合命令发送失败：{e}");
+                                                        let _ = res_tx.send(e.response());
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error!("聚合命令序列化错误：{e}");
+                                                let _ = res_tx.send(e.response());
+                                            }
+                                        }
+                                        pool.put(buf);
+                                    }
                                 }
-                            }
+                            }.instrument(span).await;
                         }
-                        Some(Todo::Response { com_id, res }) => {
-                            match rs.get_mut(&com_id) {
-                                Some((Some(_), None, _)) => {
-                                    if let Some((Some(res_tx), _, _)) = rs.remove(&com_id) {
-                                        let _ = res_tx.send(res);
+                        Some(Todo::Response { com_id, span, res }) => {
+                            async {
+                                match rs.get_mut(&com_id) {
+                                    Some((Some(_), None, _)) => {
+                                        if let Some((Some(res_tx), _, _)) = rs.remove(&com_id) {
+                                            let _ = res_tx.send(res);
+                                        }
+                                    }
+                                    Some(_) => error!("发送反馈进入非法处理分支"),
+                                    None => {
+                                        rs.insert(com_id, (None, Some(res), Instant::now()));
                                     }
                                 }
-                                Some(_) => error!("发送反馈进入非法处理分支"),
-                                None => {
-                                    rs.insert(com_id, (None, Some(res), Instant::now()));
-                                }
-                            }
+                            }.instrument(span).await;
                         }
                         None => {
-                            info!("发送端已关闭，类型 {agg_type} 响应处理器稍后将停止工作");
+                            info!("发送端已关闭，响应处理器稍后将停止工作");
                             break;
                         }
                     }
@@ -265,7 +279,9 @@ where
         }
     }
 
+    #[instrument(name = "aggregate_consumer", skip(tc, tx, commit_tx))]
     async fn consumer(
+        agg_type: &'static str,
         tc: Arc<StreamConsumer>,
         tx: mpsc::UnboundedSender<Todo<A, C>>,
         commit_tx: mpsc::UnboundedSender<Commit>,
@@ -285,9 +301,12 @@ where
                     Ok(msg) => {
                         match process_message(&msg).await {
                             Ok((agg_id, com_id, res)) => {
-                                if let Err(e) = tx.send(Todo::Response { com_id, res }) {
-                                    error!("聚合 {agg_id} 命令 {com_id} 发送反馈错误：{e}");
-                                }
+                                let span = info_span!(parent: None, "respond_command", agg_type, %agg_id, %com_id);
+                                span.clone().in_scope(|| {
+                                    if let Err(e) = tx.send(Todo::Response { com_id, span, res }) {
+                                        error!("发送聚合命令反馈错误：{e}");
+                                    }
+                                });
                             }
                             Err(e) => error!("{e}"),
                         }

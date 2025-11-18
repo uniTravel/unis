@@ -1,15 +1,34 @@
 mod common;
 
-use crate::common::ADMIN;
+use crate::common::*;
 use domain::note::{self, CreateNote, Note, NoteCommand};
 use rdkafka::admin::{AdminOptions, NewTopic, TopicReplication};
+use rstest::*;
+use std::sync::LazyLock;
 use tokio::{sync::OnceCell, time::Duration};
+use tracing::info;
 use unis::{
     Response,
     domain::{Aggregate, Request},
 };
 use unis_kafka::{reader::load, sender::Sender, subscriber::Subscriber};
 use uuid::Uuid;
+
+#[fixture]
+async fn reader_context() {
+    LazyLock::force(&EXTERNAL_SETUP);
+    static ONCE: OnceCell<()> = OnceCell::const_new();
+    ONCE.get_or_init(|| async {
+        info!("一次性初始化 Reader 测试上下文");
+        let topic = note::Note::topic();
+        let topic_com = note::Note::topic_com();
+        let agg = NewTopic::new(topic, 3, TopicReplication::Fixed(3));
+        let com = NewTopic::new(topic_com, 3, TopicReplication::Fixed(3));
+        let name = NewTopic::new("note.Restore", 3, TopicReplication::Fixed(3));
+        let _ = ADMIN.create_topics(&[agg, com, name], &OPTS).await;
+    })
+    .await;
+}
 
 static SENDER: OnceCell<Sender<Note, NoteCommand>> = OnceCell::const_new();
 

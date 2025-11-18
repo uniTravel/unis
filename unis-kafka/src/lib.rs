@@ -2,12 +2,15 @@
 //!
 //!
 
+#![warn(missing_docs)]
+
 pub(crate) mod commit;
 pub(crate) mod config;
 pub(crate) mod pool;
 pub(crate) mod stream;
 pub(crate) mod topic;
 
+pub mod projector;
 pub mod reader;
 pub mod sender;
 pub mod subscriber;
