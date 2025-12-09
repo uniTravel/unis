@@ -1,27 +1,36 @@
-#![allow(dead_code)]
-
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions},
     client::DefaultClientContext,
 };
-use std::{collections::HashMap, path::PathBuf, sync::LazyLock};
-use tokio::time::Duration;
-use tracing::{Level, info};
+use rstest::fixture;
+use std::{
+    path::PathBuf,
+    sync::{Arc, LazyLock},
+};
+use tokio::{sync::OnceCell, time::Duration};
+use tracing::{Level, error};
+use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
-use unis::config::build_config;
-use unis_test::kube::{HelmRelease, KubeCluster};
+use unis::{
+    config::build_config,
+    test_utils::kube::{HelmRelease, KubeCluster},
+};
+use unis_kafka::subscriber::{App, app::test_context};
 
-const NAMESPACE: &str = "external";
-static CLUSTER: LazyLock<KubeCluster> = LazyLock::new(|| KubeCluster::new(NAMESPACE));
-static KAFKA: LazyLock<HelmRelease> = LazyLock::new(|| {
-    HelmRelease::new(
-        "kafka",
-        std::env::home_dir()
-            .unwrap()
-            .join(".cache/helm/repository/kafka-0.1.0.tgz"),
-        NAMESPACE,
-    )
+pub(crate) static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
+    let config = build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    let bootstrap = match config.get::<String>("bootstrap") {
+        Ok(c) => c,
+        Err(e) => {
+            error!("加载'bootstrap'配置失败：{e}");
+            panic!("加载'bootstrap'配置失败");
+        }
+    };
+    ClientConfig::new()
+        .set("bootstrap.servers", bootstrap)
+        .create()
+        .expect("管理客户端创建失败")
 });
 
 pub(crate) static OPTS: LazyLock<AdminOptions> = LazyLock::new(|| {
@@ -30,29 +39,37 @@ pub(crate) static OPTS: LazyLock<AdminOptions> = LazyLock::new(|| {
         .request_timeout(Some(Duration::from_secs(5)))
 });
 
-pub(crate) static EXTERNAL_SETUP: LazyLock<()> = LazyLock::new(|| {
-    LazyLock::force(&ADMIN);
-    LazyLock::force(&OPTS);
-    CLUSTER.create_namespace().unwrap();
-    KAFKA.install(None).unwrap();
-});
+static TEST_CONTEXT: OnceCell<()> = OnceCell::const_new();
+#[fixture]
+async fn external_setup() {
+    TEST_CONTEXT
+        .get_or_init(|| async {
+            LazyLock::force(&ADMIN);
+            LazyLock::force(&OPTS);
+            let (non_blocking, _guard) = non_blocking(std::io::stdout());
+            fmt()
+                .with_max_level(Level::DEBUG)
+                .with_writer(non_blocking)
+                .with_target(false)
+                .pretty()
+                .with_test_writer()
+                .init();
+            let namespace = "external";
+            let cluster = KubeCluster::new(namespace);
+            let kafka = HelmRelease::new(
+                "kafka",
+                std::env::home_dir()
+                    .unwrap()
+                    .join(".cache/helm/repository/kafka-0.1.0.tgz"),
+                namespace,
+            );
+            cluster.create_namespace().unwrap();
+            kafka.install(None).await.unwrap();
+        })
+        .await;
+}
 
-pub(crate) static CFG: LazyLock<config::Config> = LazyLock::new(|| {
-    let config = build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-    fmt().with_test_writer().with_max_level(Level::DEBUG).init();
-    info!("启用 {} 测试日志输出", Level::DEBUG);
-    config
-});
-
-pub(crate) static ADMIN: LazyLock<AdminClient<DefaultClientContext>> =
-    LazyLock::new(|| config(HashMap::new()).create().expect("管理客户端创建失败"));
-
-pub(crate) fn config(settings: HashMap<&str, &str>) -> ClientConfig {
-    let bootstrap = CFG.get::<String>("bootstrap").unwrap();
-    let mut config = ClientConfig::new();
-    for (key, value) in settings {
-        config.set(key, value);
-    }
-    config.set("bootstrap.servers", bootstrap);
-    config
+#[fixture]
+async fn app() -> Arc<App> {
+    test_context().await
 }

@@ -24,7 +24,7 @@ impl BufferPool {
     }
 
     /// 获取缓冲
-    #[inline(always)]
+    #[inline]
     pub fn get(&self) -> BytesMut {
         match self.queue.pop() {
             Some(mut buf) => {
@@ -36,7 +36,7 @@ impl BufferPool {
     }
 
     /// 归还缓冲
-    #[inline(always)]
+    #[inline]
     pub fn put(&self, mut buf: BytesMut) {
         buf.clear();
 

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["unis", "unis-macros", "unis-kafka", "unis-test", "domain"]
+members = ["unis", "unis-macros", "unis-kafka", "domain"]
 default-members = ["unis", "unis-macros", "unis-kafka"]
 
 [workspace.package]
@@ -32,6 +32,7 @@ futures = "0.3"
 
 tracing = { version = "0.1", features = ["release_max_level_info", "valuable"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 thiserror = "2.0"
 
 config = "0.15"

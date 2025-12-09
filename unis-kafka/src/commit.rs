@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use ahash::AHashMap;
 use rdkafka::{
     Message, Offset, TopicPartitionList,
@@ -9,7 +11,7 @@ use tokio::{
     sync::mpsc,
     time::{Duration, Instant},
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 pub(crate) struct Commit {
     topic: String,
@@ -27,7 +29,9 @@ impl From<&BorrowedMessage<'_>> for Commit {
     }
 }
 
+#[instrument(skip(consumer, commit_rx))]
 pub(crate) async fn commit_coordinator(
+    topic: &'static str,
     consumer: Arc<StreamConsumer>,
     mut commit_rx: mpsc::UnboundedReceiver<Commit>,
 ) {
@@ -38,6 +42,7 @@ pub(crate) async fn commit_coordinator(
     let mut count: usize = 0;
     let threshold = 1000 - 1;
 
+    // let _shutdown_rx = shutdown().notified();
     loop {
         tokio::select! {
             biased;

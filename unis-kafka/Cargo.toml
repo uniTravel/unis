@@ -8,6 +8,12 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+subscriber = []
+sender = []
+projector = []
+test-utils = []
+
 [dependencies]
 rdkafka = "0.38"
 
@@ -24,11 +30,24 @@ futures.workspace = true
 
 tracing.workspace = true
 tracing-subscriber.workspace = true
+tracing-appender.workspace = true
 thiserror.workspace = true
 
 config.workspace = true
 
 [dev-dependencies]
 domain = { path = "../domain" }
-unis-test = { path = "../unis-test" }
+unis = { workspace = true, features = ["test-utils"] }
+unis-kafka = { path = ".", features = [
+    "subscriber",
+    "sender",
+    "projector",
+    "test-utils",
+] }
 rstest.workspace = true
+
+# [[test]]
+# name = "common"
+# path = "tests/common/mod.rs"
+# harness = false
+# required-features = ["test-utils"]

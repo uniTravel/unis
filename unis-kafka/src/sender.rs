@@ -1,4 +1,4 @@
-//! Kafka 发送者
+//! ## Kafka 发送者
 
 use crate::{
     BINCODE_HEADER,
@@ -19,7 +19,7 @@ use std::{
     sync::{Arc, LazyLock},
 };
 use tokio::{
-    sync::{mpsc, oneshot, watch},
+    sync::{mpsc, oneshot},
     time::{Duration, Instant, MissedTickBehavior, interval_at},
 };
 use tracing::{Instrument, Span, debug, error, info, info_span, instrument, warn};
@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 static SENDER_CONFIG: LazyLock<SenderConfig> = LazyLock::new(|| SenderConfig::get());
 
-static SHARED: LazyLock<Arc<FutureProducer>> = LazyLock::new(|| {
+static SHARED_CP: LazyLock<Arc<FutureProducer>> = LazyLock::new(|| {
     let mut config = ClientConfig::new();
     config.set("bootstrap.servers", &SENDER_CONFIG.bootstrap);
     Arc::new(config.create().expect("共享的聚合类型生产者创建失败"))
@@ -47,15 +47,6 @@ static CP_CONFIG: LazyLock<ClientConfig> = LazyLock::new(|| {
     }
     config.set("bootstrap.servers", &SENDER_CONFIG.bootstrap);
     config
-});
-
-static SHUTDOWN_RX: LazyLock<watch::Receiver<bool>> = LazyLock::new(|| {
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.expect("无法监听 Ctrl+C 信号");
-        shutdown_tx.send(true).expect("发送 Ctrl+C 信号失败");
-    });
-    shutdown_rx
 });
 
 enum Todo<A, C>
@@ -78,6 +69,7 @@ where
 }
 
 /// 发送者结构
+#[derive(Debug)]
 pub struct Sender<A, C>
 where
     A: Aggregate + Sync,
@@ -103,7 +95,7 @@ where
         let topic = A::topic_com();
         let producer = match cfg.hotspot {
             true => Arc::new(CP_CONFIG.create().expect("命令生产者创建失败")),
-            false => SHARED.clone(),
+            false => SHARED_CP.clone(),
         };
         info!("成功创建 {topic} 命令生产者");
 
@@ -118,11 +110,9 @@ where
         let (tx, rx) = mpsc::unbounded_channel::<Todo<A, C>>();
         let (commit_tx, commit_rx) = mpsc::unbounded_channel::<Commit>();
         let pool = Arc::new(BufferPool::new(cfg.bufs, cfg.sems));
-        tokio::spawn(commit_coordinator(tc.clone(), commit_rx));
+        tokio::spawn(commit_coordinator(agg_type, tc.clone(), commit_rx));
         tokio::spawn(Self::responsor(agg_type, producer, topic, pool, cfg, rx));
-        info!("成功启用响应处理器");
         tokio::spawn(Self::consumer(agg_type, tc, tx.clone(), commit_tx));
-        info!("成功启用发送者");
 
         Self {
             agg_type,
@@ -132,7 +122,7 @@ where
         }
     }
 
-    #[instrument(name = "send_command", skip(self, com), fields(agg_type = self.agg_type))]
+    #[instrument(name = "send_command", skip_all, fields(agg_type = self.agg_type, agg_id, com_id))]
     async fn send(&self, agg_id: Uuid, com_id: Uuid, com: C) -> Response {
         let (res_tx, res_rx) = oneshot::channel::<Response>();
         if let Err(e) = self.tx.send(Todo::Reply {
@@ -179,6 +169,7 @@ where
         let mut interval = interval_at(start, Duration::from_secs(cfg.interval));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
+        // let _shutdown_rx = shutdown().notified();
         loop {
             tokio::select! {
                 biased;
@@ -286,17 +277,18 @@ where
         tx: mpsc::UnboundedSender<Todo<A, C>>,
         commit_tx: mpsc::UnboundedSender<Commit>,
     ) {
-        let mut shutdown_rx = SHUTDOWN_RX.clone();
         let message_stream = tc.stream();
+        // let shutdown_rx = shutdown();
+        // let shutdown = shutdown_rx.notified();
         tokio::pin!(message_stream);
-
+        // tokio::pin!(shutdown);
         loop {
             tokio::select! {
                 biased;
-                _ = shutdown_rx.changed(), if *shutdown_rx.borrow() => {
-                    info!("收到关闭信号，开始优雅退出");
-                    break;
-                }
+                // _ = &mut shutdown => {
+                //     info!("收到关闭信号，开始优雅退出");
+                //     break;
+                // }
                 Some(msg) = message_stream.next() => match msg {
                     Ok(msg) => {
                         match process_message(&msg).await {

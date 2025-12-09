@@ -9,6 +9,8 @@ pub mod config;
 pub mod domain;
 pub mod errors;
 pub mod pool;
+#[cfg(feature = "test-utils")]
+pub mod test_utils;
 
 use bincode::config::Configuration;
 use tokio::sync::OwnedSemaphorePermit;

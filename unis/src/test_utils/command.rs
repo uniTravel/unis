@@ -1,3 +1,5 @@
+#![cfg(feature = "test-utils")]
+
 use std::process::Command;
 
 pub(crate) struct CommandBuilder {

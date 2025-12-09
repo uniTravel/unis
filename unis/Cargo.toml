@@ -8,6 +8,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+test-utils = []
+
 [dependencies]
 uuid.workspace = true
 ahash.workspace = true

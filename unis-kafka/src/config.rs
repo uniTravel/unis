@@ -1,8 +1,9 @@
+#![allow(unused)]
+
 use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{OnceLock, RwLock},
-    usize,
 };
 use tokio::time::Duration;
 use tracing::error;
@@ -11,8 +12,8 @@ use unis::{
     domain,
 };
 
-static SUBSCRIBER_CONFIG: OnceLock<RwLock<SubscriberConfig>> = OnceLock::new();
-static SENDER_CONFIG: OnceLock<RwLock<SenderConfig>> = OnceLock::new();
+static SUBSCRIBER: OnceLock<RwLock<SubscriberConfig>> = OnceLock::new();
+static SENDER: OnceLock<RwLock<SenderConfig>> = OnceLock::new();
 
 fn load_named_setting(
     config: &config::Config,
@@ -37,21 +38,42 @@ fn load_named_setting(
     result
 }
 
-fn load_subscriber() -> SubscriberConfig {
-    let config = build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-    let bootstrap = match config.get("bootstrap") {
+#[inline]
+pub(crate) fn load_bootstrap(config: &config::Config) -> String {
+    match config.get("bootstrap") {
         Ok(c) => c,
         Err(e) => {
             error!("加载'bootstrap'配置失败：{e}");
             panic!("加载'bootstrap'配置失败");
         }
-    };
-    let replicas = config.get("replicas").unwrap_or(3);
-    let aggs = config.get("aggs").unwrap_or(16);
-    let timeout = match config.get("timeout") {
+    }
+}
+
+#[inline]
+fn load_hostname(config: &config::Config) -> String {
+    match config.get("hostname") {
+        Ok(c) => c,
+        Err(e) => {
+            error!("加载'hostname'配置失败：{e}");
+            panic!("加载'hostname'配置失败");
+        }
+    }
+}
+
+#[inline]
+fn load_timeout(config: &config::Config) -> Duration {
+    match config.get("timeout") {
         Ok(t) => Duration::from_secs(t),
         Err(_) => Duration::from_secs(45),
-    };
+    }
+}
+
+fn load_subscriber() -> SubscriberConfig {
+    let config = build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    let bootstrap = load_bootstrap(&config);
+    let replicas = config.get("replicas").unwrap_or(3);
+    let aggs = config.get("aggs").unwrap_or(16);
+    let timeout = load_timeout(&config);
     let subscriber = load_named_config(&config, "subscriber");
     let cc = load_named_setting(&config, "cc");
     let tp = match config.get::<HashMap<String, String>>("tp") {
@@ -74,24 +96,9 @@ fn load_subscriber() -> SubscriberConfig {
 
 fn load_sender() -> SenderConfig {
     let config = build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-    let bootstrap = match config.get("bootstrap") {
-        Ok(c) => c,
-        Err(e) => {
-            error!("加载'bootstrap'配置失败：{e}");
-            panic!("加载'bootstrap'配置失败");
-        }
-    };
-    let hostname = match config.get("hostname") {
-        Ok(c) => c,
-        Err(e) => {
-            error!("加载'hostname'配置失败：{e}");
-            panic!("加载'hostname'配置失败");
-        }
-    };
-    let timeout = match config.get("timeout") {
-        Ok(t) => Duration::from_secs(t),
-        Err(_) => Duration::from_secs(45),
-    };
+    let bootstrap = load_bootstrap(&config);
+    let hostname = load_hostname(&config);
+    let timeout = load_timeout(&config);
     let sender = load_named_config(&config, "sender");
     let cp = match config.get::<HashMap<String, String>>("cp") {
         Ok(c) => c,
@@ -122,7 +129,7 @@ pub struct SubscriberConfig {
 
 impl domain::Config for SubscriberConfig {
     fn get() -> Self {
-        match SUBSCRIBER_CONFIG
+        match SUBSCRIBER
             .get_or_init(|| RwLock::new(load_subscriber()))
             .read()
         {
@@ -135,7 +142,7 @@ impl domain::Config for SubscriberConfig {
     }
 
     fn reload() {
-        let cfg = match SUBSCRIBER_CONFIG.get() {
+        let cfg = match SUBSCRIBER.get() {
             Some(c) => c,
             None => {
                 error!("订阅者配置未初始化");
@@ -164,10 +171,7 @@ pub struct SenderConfig {
 
 impl domain::Config for SenderConfig {
     fn get() -> Self {
-        match SENDER_CONFIG
-            .get_or_init(|| RwLock::new(load_sender()))
-            .read()
-        {
+        match SENDER.get_or_init(|| RwLock::new(load_sender())).read() {
             Ok(cfg) => cfg.clone(),
             Err(e) => {
                 error!("获取发送者配置失败：{e}");
@@ -177,7 +181,7 @@ impl domain::Config for SenderConfig {
     }
 
     fn reload() {
-        let cfg = match SENDER_CONFIG.get() {
+        let cfg = match SENDER.get() {
             Some(c) => c,
             None => {
                 error!("发送者配置未初始化");

@@ -1,9 +1,6 @@
 use crate::{
     BINCODE_HEADER,
-    {
-        subscriber::SUBSCRIBER_CONFIG,
-        topic::{TOPIC_TX, TopicTask},
-    },
+    subscriber::{SUBSCRIBER_CONFIG, TopicTask},
 };
 use bincode::encode_into_slice;
 use rdkafka::{
@@ -17,7 +14,7 @@ use tracing::{debug, error, instrument};
 use unis::{Response, config::SubscribeConfig, domain, errors::UniError};
 use uuid::Uuid;
 
-static SHARED: LazyLock<Arc<FutureProducer>> = LazyLock::new(|| {
+static SHARED_TP: LazyLock<Arc<FutureProducer>> = LazyLock::new(|| {
     let mut config = ClientConfig::new();
     config.set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap);
     Arc::new(config.create().expect("共享的聚合类型生产者创建失败"))
@@ -38,16 +35,12 @@ pub(crate) struct Writer {
 }
 
 impl Writer {
-    pub fn new(cfg: &SubscribeConfig) -> Self {
-        LazyLock::force(&TOPIC_TX);
+    pub fn new(cfg: &SubscribeConfig, topic_tx: mpsc::UnboundedSender<TopicTask>) -> Self {
         let producer = match cfg.hotspot {
             true => Arc::new(TP_CONFIG.create().expect("聚合类型生产者创建失败")),
-            false => SHARED.clone(),
+            false => Arc::clone(&SHARED_TP),
         };
-        Self {
-            topic_tx: TOPIC_TX.clone(),
-            producer,
-        }
+        Self { topic_tx, producer }
     }
 }
 
@@ -62,6 +55,7 @@ impl domain::Stream for Writer {
         evt_data: &[u8],
     ) -> Result<(), UniError> {
         if revision == u64::MAX {
+            debug!("创建聚合主题");
             if let Err(e) = self.topic_tx.send(TopicTask { agg_type, agg_id }) {
                 error!(agg_type, %agg_id, "发送聚合主题失败：{e}");
             }
@@ -137,41 +131,6 @@ impl domain::Stream for Writer {
                  }| {
                     debug!("生成的反馈事件写到分区 {partition} 偏移 {offset}")
                 },
-            )
-    }
-}
-
-impl Writer {
-    #[cfg(test)]
-    #[instrument(name = "aggregate_write", level = "debug", skip(self, evt_data))]
-    pub(crate) async fn write_to_agg(
-        &self,
-        agg_type: &'static str,
-        agg_id: Uuid,
-        com_id: Uuid,
-        evt_data: &[u8],
-    ) -> Result<(), UniError> {
-        let mut topic = String::with_capacity(agg_type.len() + 37);
-        topic.push_str(agg_type);
-        topic.push_str("-");
-        topic.push_str(&agg_id.to_string());
-        let record = FutureRecord::to(&topic)
-            .payload(evt_data)
-            .key(agg_id.as_bytes())
-            .headers(OwnedHeaders::new_with_capacity(2).insert(Header {
-                key: "com_id",
-                value: Some(com_id.as_bytes()),
-            }));
-        self.producer
-            .send(record, SUBSCRIBER_CONFIG.timeout)
-            .await
-            .map_err(|(e, _)| UniError::WriteError(e.to_string()))
-            .map(
-                |Delivery {
-                     partition: _,
-                     offset,
-                     timestamp: _,
-                 }| { debug!("生成的事件写到偏移 {offset}") },
             )
     }
 }

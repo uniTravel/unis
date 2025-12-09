@@ -58,7 +58,7 @@ where
 {
     type Fut = Fut;
 
-    #[inline(always)]
+    #[inline]
     fn dispatch(
         &self,
         agg_type: &'static str,
@@ -94,7 +94,7 @@ where
     /// 启动聚合器
     #[instrument(name = "launch_aggregator", skip_all, fields(agg_type))]
     pub async fn launch(
-        cfg: &SubscribeConfig,
+        cfg: SubscribeConfig,
         dispatcher: D,
         loader: L,
         stream: Arc<impl Stream>,
@@ -134,7 +134,9 @@ where
             }
         }
         info!("成功恢复最近 {latest} 分钟的命令操作记录");
+        info!("聚合器准备就绪");
 
+        // let _shutdown_rx = shutdown().notified();
         loop {
             tokio::select! {
                 biased;
@@ -197,6 +199,10 @@ where
         }
     }
 
+    #[instrument(
+        name = "aggregate_processor",
+        skip(pool, dispatcher, loader, stream, coms, agg_rx)
+    )]
     async fn processor(
         agg_type: &'static str,
         agg_id: Uuid,
@@ -208,6 +214,8 @@ where
         mut agg_rx: UnboundedReceiver<ComSemaphore>,
     ) {
         let mut agg = A::new(agg_id);
+
+        // let _shutdown_rx = shutdown().notified();
         loop {
             match agg_rx.recv().await {
                 Some(ComSemaphore {
