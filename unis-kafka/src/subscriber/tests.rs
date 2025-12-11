@@ -1,17 +1,20 @@
 mod restore_test;
 mod stream_test;
 
-use crate::{
-    config::load_bootstrap,
-    subscriber::{App, SUBSCRIBER_CONFIG, app::test_context, reader::restore, stream::Writer},
+use super::{
+    SUBSCRIBER_CONFIG,
+    app::{self, App},
+    reader,
+    stream::Writer,
 };
+use crate::config;
 use domain::note;
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
     client::DefaultClientContext,
 };
-use rstest::*;
+use rstest::{fixture, rstest};
 use std::{
     path::PathBuf,
     sync::{Arc, LazyLock},
@@ -33,7 +36,7 @@ use uuid::Uuid;
 
 static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
     let config = build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-    let bootstrap = load_bootstrap(&config);
+    let bootstrap = config::load_bootstrap(&config);
     ClientConfig::new()
         .set("bootstrap.servers", bootstrap)
         .create()
@@ -46,10 +49,10 @@ static OPTS: LazyLock<AdminOptions> = LazyLock::new(|| {
         .request_timeout(Some(Duration::from_secs(5)))
 });
 
-static TEST_CONTEXT: OnceCell<()> = OnceCell::const_new();
+static INTERNAL_SETUP: OnceCell<()> = OnceCell::const_new();
 #[fixture]
 async fn internal_setup() {
-    TEST_CONTEXT
+    INTERNAL_SETUP
         .get_or_init(|| async {
             LazyLock::force(&ADMIN);
             LazyLock::force(&OPTS);
@@ -77,13 +80,15 @@ async fn internal_setup() {
 }
 
 #[fixture]
-async fn context() -> (Arc<App>, Writer) {
-    let app = test_context().await;
+async fn context() -> Arc<App> {
+    app::test_context().await
+}
+
+fn stream(context: &Arc<App>) -> Writer {
     let agg_type = note::Note::topic();
     let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
     let cfg = SUBSCRIBER_CONFIG.subscriber.get(cfg_name);
-    let stream = Writer::new(&cfg, app.topic_tx());
-    (app, stream)
+    Writer::new(&cfg, context.topic_tx())
 }
 
 async fn is_topic_exist(name: &str) -> bool {

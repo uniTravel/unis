@@ -15,23 +15,23 @@ async fn init(#[future(awt)] _internal_setup: ()) {
 async fn restore_without_coms(#[future(awt)] _init: ()) {
     let topic = "note.Restore";
 
-    let agg_coms = restore(topic, 1).await.unwrap();
+    let agg_coms = reader::restore(topic, 1).await.unwrap();
 
     assert_eq!(agg_coms.len(), 0);
 }
 
 #[rstest]
 #[tokio::test]
-async fn restore_with_coms(#[future(awt)] _init: (), #[future(awt)] context: (Arc<App>, Writer)) {
-    let (app, stream) = context;
+async fn restore_with_coms(#[future(awt)] _init: (), #[future(awt)] context: Arc<App>) {
+    let stream = stream(&context);
     let agg_type = note::Note::topic();
     let agg_id = Uuid::new_v4();
     let com_id = Uuid::new_v4();
     let result = stream.write(agg_type, agg_id, com_id, 0, &[]).await;
     assert!(result.is_ok());
 
-    let agg_coms = restore(agg_type, 1).await.unwrap();
+    let agg_coms = reader::restore(agg_type, 1).await.unwrap();
 
     assert!(agg_coms.len() >= 1);
-    app.shutdown().await;
+    context.teardown().await;
 }

@@ -129,8 +129,6 @@ where
     A: Aggregate,
     C: CommandEnum<A = A>,
 {
-    /// 构造函数
-    fn new() -> impl Future<Output = Self> + Send;
     /// 发送命令
     fn send(&self, agg_id: Uuid, com_id: Uuid, com: C) -> impl Future<Output = Response> + Send;
 }

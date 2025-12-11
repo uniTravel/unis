@@ -1,8 +1,5 @@
-use crate::{
-    BINCODE_HEADER,
-    subscriber::{SUBSCRIBER_CONFIG, TopicTask},
-};
-use bincode::encode_into_slice;
+use super::{SUBSCRIBER_CONFIG, TopicTask};
+use crate::BINCODE_HEADER;
 use rdkafka::{
     ClientConfig,
     message::{Header, OwnedHeaders},
@@ -62,7 +59,7 @@ impl domain::Stream for Writer {
         }
 
         let mut buf = [0u8; 4];
-        encode_into_slice(Response::Success, &mut buf, BINCODE_HEADER)?;
+        bincode::encode_into_slice(Response::Success, &mut buf, BINCODE_HEADER)?;
         let record = FutureRecord::to(agg_type)
             .payload(evt_data)
             .key(agg_id.as_bytes())
@@ -103,7 +100,7 @@ impl domain::Stream for Writer {
         evt_data: &[u8],
     ) -> Result<(), UniError> {
         let mut buf = [0u8; 4];
-        encode_into_slice(res, &mut buf, BINCODE_HEADER)?;
+        bincode::encode_into_slice(res, &mut buf, BINCODE_HEADER)?;
         let record = FutureRecord::to(agg_type)
             .payload(evt_data)
             .key(agg_id.as_bytes())

@@ -14,10 +14,10 @@ use bincode::error::EncodeError;
 use std::{marker::PhantomData, sync::Arc};
 use tokio::{
     sync::{
-        Semaphore,
+        Notify, Semaphore,
         mpsc::{self, UnboundedReceiver, UnboundedSender},
     },
-    time::{Duration, Instant, MissedTickBehavior, interval_at},
+    time::{self, Duration, Instant, MissedTickBehavior},
 };
 use tracing::{Instrument, Span, error, info, instrument, warn};
 use uuid::Uuid;
@@ -100,6 +100,7 @@ where
         stream: Arc<impl Stream>,
         restore: impl Restore,
         mut rx: UnboundedReceiver<Com>,
+        ready: Arc<Notify>,
     ) {
         let agg_type = A::topic();
         Span::current().record("agg_type", agg_type);
@@ -108,7 +109,7 @@ where
         let latest = cfg.latest;
         let mut caches: AHashMap<Uuid, (UnboundedSender<ComSemaphore>, Instant)> = AHashMap::new();
         let start = Instant::now();
-        let mut interval = interval_at(start, Duration::from_secs(cfg.interval));
+        let mut interval = time::interval_at(start, Duration::from_secs(cfg.interval));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         match restore.restore(agg_type, latest).await {
@@ -136,7 +137,7 @@ where
         info!("成功恢复最近 {latest} 分钟的命令操作记录");
         info!("聚合器准备就绪");
 
-        // let _shutdown_rx = shutdown().notified();
+        ready.notify_one();
         loop {
             tokio::select! {
                 biased;

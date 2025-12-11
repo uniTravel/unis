@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use ahash::AHashMap;
 use rdkafka::{
     Message, Offset, TopicPartitionList,
@@ -8,7 +6,7 @@ use rdkafka::{
 };
 use std::sync::Arc;
 use tokio::{
-    sync::mpsc,
+    sync::{Notify, mpsc},
     time::{Duration, Instant},
 };
 use tracing::{debug, error, info, instrument};
@@ -34,6 +32,7 @@ pub(crate) async fn commit_coordinator(
     topic: &'static str,
     consumer: Arc<StreamConsumer>,
     mut commit_rx: mpsc::UnboundedReceiver<Commit>,
+    ready: Arc<Notify>,
 ) {
     let mut tpl = TopicPartitionList::new();
     let mut batch = AHashMap::new();
@@ -42,7 +41,7 @@ pub(crate) async fn commit_coordinator(
     let mut count: usize = 0;
     let threshold = 1000 - 1;
 
-    // let _shutdown_rx = shutdown().notified();
+    ready.notify_one();
     loop {
         tokio::select! {
             biased;

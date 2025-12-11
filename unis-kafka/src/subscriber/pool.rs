@@ -1,4 +1,4 @@
-use crate::subscriber::SUBSCRIBER_CONFIG;
+use super::SUBSCRIBER_CONFIG;
 use crossbeam::queue::ArrayQueue;
 use rdkafka::{
     ClientConfig,

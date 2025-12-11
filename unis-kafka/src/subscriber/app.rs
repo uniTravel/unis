@@ -1,24 +1,19 @@
 //! Kafka 订阅者上下文
 
-use crate::{
-    config::load_bootstrap,
-    subscriber::{SUBSCRIBER_CONFIG, TopicTask},
-};
+use super::{SUBSCRIBER_CONFIG, TopicTask};
+use crate::{Context, config::load_bootstrap};
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
     client::DefaultClientContext,
 };
 use std::{
+    ops::Deref,
     path::PathBuf,
-    sync::{
-        Arc, LazyLock,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, LazyLock},
 };
 use tokio::{
-    sync::{Mutex, Notify, OnceCell, mpsc},
-    task::JoinSet,
+    sync::{Notify, OnceCell, mpsc},
     time::{Duration, Instant},
 };
 use tracing::{debug, debug_span, error, info};
@@ -39,99 +34,71 @@ static OPTS: LazyLock<AdminOptions> = LazyLock::new(|| {
         .request_timeout(Some(Duration::from_secs(5)))
 });
 
-static APP: OnceCell<Arc<App>> = OnceCell::const_new();
+static CONTEXT: OnceCell<Arc<App>> = OnceCell::const_new();
 /// 订阅者上下文
-pub async fn app() -> Arc<App> {
+pub async fn context() -> Arc<App> {
     Arc::clone(
-        APP.get_or_init(|| async {
-            LazyLock::force(&ADMIN);
-            LazyLock::force(&OPTS);
-            let (topic_tx, topic_rx) = mpsc::unbounded_channel::<TopicTask>();
-            let app = Arc::new(App::new(topic_tx));
-            app.spawn(|ready, notify| topic_creator(topic_rx, ready, notify))
-                .await;
-            let app_clone = Arc::clone(&app);
-            tokio::spawn(async move {
-                match tokio::signal::ctrl_c().await {
-                    Ok(_) => info!("收到 Ctrl-C 信号"),
-                    Err(e) => {
-                        error!("监听 Ctrl-C 信号失败: {e}");
-                        info!("启用备用关闭机制");
+        CONTEXT
+            .get_or_init(|| async {
+                LazyLock::force(&ADMIN);
+                LazyLock::force(&OPTS);
+                let (topic_tx, topic_rx) = mpsc::unbounded_channel::<TopicTask>();
+                let app = Arc::new(App::new(topic_tx));
+                app.spawn_notify(move |ready, notify| topic_creator(topic_rx, ready, notify))
+                    .await;
+                let app_clone = Arc::clone(&app);
+                tokio::spawn(async move {
+                    match tokio::signal::ctrl_c().await {
+                        Ok(_) => info!("收到 Ctrl-C 信号"),
+                        Err(e) => {
+                            error!("监听 Ctrl-C 信号失败: {e}");
+                            info!("启用备用关闭机制");
+                        }
                     }
-                }
-                app_clone.shutdown().await;
-            });
-            app
-        })
-        .await,
+                    app_clone.shutdown().await;
+                });
+                app
+            })
+            .await,
     )
 }
 
-/// 测试专用订阅者上下文
+#[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
 pub async fn test_context() -> Arc<App> {
     LazyLock::force(&ADMIN);
     LazyLock::force(&OPTS);
     let (topic_tx, topic_rx) = mpsc::unbounded_channel::<TopicTask>();
     let app = Arc::new(App::new(topic_tx));
-    app.spawn(|ready, notify| topic_creator(topic_rx, ready, notify))
+    app.spawn_notify(move |ready, notify| topic_creator(topic_rx, ready, notify))
         .await;
     app
 }
 
 /// 订阅者上下文结构
 pub struct App {
-    initiated: AtomicBool,
     topic_tx: mpsc::UnboundedSender<TopicTask>,
-    tasks: Mutex<JoinSet<()>>,
-    notify: Arc<Notify>,
+    context: Context,
 }
 
 impl App {
     fn new(topic_tx: mpsc::UnboundedSender<TopicTask>) -> Self {
         Self {
-            initiated: AtomicBool::new(false),
             topic_tx,
-            tasks: Mutex::new(JoinSet::new()),
-            notify: Arc::new(Notify::new()),
+            context: Context::new(),
         }
     }
 
-    /// 启用后台任务
-    pub async fn spawn<F, Fut>(&self, task: F)
-    where
-        F: FnOnce(Arc<Notify>, Arc<Notify>) -> Fut + Send + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
-    {
-        let mut tasks = self.tasks.lock().await;
-        let notify = Arc::clone(&self.notify);
-        let ready = Arc::new(Notify::new());
-        let waiter = Arc::clone(&ready);
-        tasks.spawn(task(ready, notify));
-        waiter.notified().await;
-    }
-
-    pub(crate) fn topic_tx(&self) -> mpsc::UnboundedSender<TopicTask> {
+    pub(super) fn topic_tx(&self) -> mpsc::UnboundedSender<TopicTask> {
         self.topic_tx.clone()
     }
+}
 
-    /// 优雅关闭
-    pub async fn shutdown(&self) {
-        if self
-            .initiated
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
-            .is_ok()
-        {
-            info!("开始优雅退出");
-            self.notify.notify_waiters();
-            let mut tasks = self.tasks.lock().await;
-            while let Some(result) = tasks.join_next().await {
-                if let Err(e) = result {
-                    error!("后台任务发生错误：{e}");
-                }
-            }
-            info!("优雅退出所有后台任务");
-        }
+impl Deref for App {
+    type Target = Context;
+
+    fn deref(&self) -> &Self::Target {
+        &self.context
     }
 }
 
@@ -147,8 +114,8 @@ async fn topic_creator(
     let mut interval = tokio::time::interval(Duration::from_millis(1));
     let mut count: usize = 0;
     let threshold = capacity - 1;
-    let notified = notify.notified();
 
+    let notified = notify.notified();
     tokio::pin!(notified);
     ready.notify_one();
     loop {

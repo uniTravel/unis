@@ -1,25 +1,32 @@
-use rdkafka::{
+pub(crate) use domain::note::{self, CreateNote, NoteCommand};
+pub(crate) use rdkafka::{
     ClientConfig,
-    admin::{AdminClient, AdminOptions},
+    admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
     client::DefaultClientContext,
 };
-use rstest::fixture;
-use std::{
+pub(crate) use rstest::{fixture, rstest};
+pub(crate) use std::{
     path::PathBuf,
     sync::{Arc, LazyLock},
 };
-use tokio::{sync::OnceCell, time::Duration};
+pub(crate) use tokio::{sync::OnceCell, time::Duration};
 use tracing::{Level, error};
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
-use unis::{
-    config::build_config,
+pub(crate) use unis::{
+    Response, config,
+    domain::{Aggregate, Request},
     test_utils::kube::{HelmRelease, KubeCluster},
 };
-use unis_kafka::subscriber::{App, app::test_context};
+pub(crate) use unis_kafka::{
+    Context,
+    sender::{self, core::Sender},
+    subscriber::{self, core::Subscriber, reader},
+};
+pub(crate) use uuid::Uuid;
 
 pub(crate) static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
-    let config = build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    let config = config::build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
     let bootstrap = match config.get::<String>("bootstrap") {
         Ok(c) => c,
         Err(e) => {
@@ -39,10 +46,10 @@ pub(crate) static OPTS: LazyLock<AdminOptions> = LazyLock::new(|| {
         .request_timeout(Some(Duration::from_secs(5)))
 });
 
-static TEST_CONTEXT: OnceCell<()> = OnceCell::const_new();
+static EXTERNAL_SETUP: OnceCell<()> = OnceCell::const_new();
 #[fixture]
-async fn external_setup() {
-    TEST_CONTEXT
+pub(crate) async fn external_setup() {
+    EXTERNAL_SETUP
         .get_or_init(|| async {
             LazyLock::force(&ADMIN);
             LazyLock::force(&OPTS);
@@ -70,6 +77,11 @@ async fn external_setup() {
 }
 
 #[fixture]
-async fn app() -> Arc<App> {
-    test_context().await
+pub(crate) async fn ctx_subscriber() -> Arc<subscriber::app::App> {
+    subscriber::app::test_context().await
+}
+
+#[fixture]
+pub(crate) async fn ctx_sender() -> Arc<Context> {
+    sender::app::test_context().await
 }

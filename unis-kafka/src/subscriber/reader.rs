@@ -1,6 +1,6 @@
 //! Kafka 数据读取
 
-use crate::subscriber::{SUBSCRIBER_CONFIG, pool::ConsumerPool};
+use super::{SUBSCRIBER_CONFIG, pool::ConsumerPool};
 use ahash::{AHashMap, AHashSet};
 use rdkafka::{Message, Offset, TopicPartitionList, consumer::Consumer, message::Headers};
 use std::{sync::LazyLock, time::SystemTime};

@@ -45,9 +45,3 @@ unis-kafka = { path = ".", features = [
     "test-utils",
 ] }
 rstest.workspace = true
-
-# [[test]]
-# name = "common"
-# path = "tests/common/mod.rs"
-# harness = false
-# required-features = ["test-utils"]

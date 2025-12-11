@@ -1,9 +1,7 @@
 //! Kafka 订阅者内核
 
-use crate::{
-    commit::{Commit, commit_coordinator},
-    subscriber::{App, SUBSCRIBER_CONFIG, reader::restore, stream::Writer},
-};
+use super::{SUBSCRIBER_CONFIG, app::App, reader, stream::Writer};
+use crate::commit::{Commit, commit_coordinator};
 use futures::StreamExt;
 use rdkafka::{
     ClientConfig, Message,
@@ -11,7 +9,7 @@ use rdkafka::{
     message::{BorrowedMessage, Headers},
 };
 use std::{marker::PhantomData, sync::Arc};
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tracing::{Span, debug, error, info, info_span, instrument};
 use unis::{
     Com,
@@ -44,7 +42,7 @@ where
 {
     /// 启动订阅者
     #[instrument(name = "launch_subscriber", skip_all, fields(agg_type))]
-    pub async fn launch(app: Arc<App>, dispatcher: D, loader: L) {
+    pub async fn launch(context: Arc<App>, dispatcher: D, loader: L) {
         let agg_type = A::topic();
         Span::current().record("agg_type", agg_type);
         let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
@@ -66,34 +64,43 @@ where
 
         let (tx, rx) = mpsc::unbounded_channel::<Com>();
         let (commit_tx, commit_rx) = mpsc::unbounded_channel::<Commit>();
-        let stream = Arc::new(Writer::new(&cfg, app.topic_tx()));
-        tokio::spawn(commit_coordinator(topic, cc.clone(), commit_rx));
-        tokio::spawn(consumer(agg_type, cc, tx, commit_tx));
-        tokio::spawn(Aggregator::launch(
-            cfg, dispatcher, loader, stream, restore, rx,
-        ));
+        let stream = Arc::new(Writer::new(&cfg, context.topic_tx()));
+        let consumer = cc.clone();
+        context
+            .spawn(move |ready| commit_coordinator(topic, consumer, commit_rx, ready))
+            .await;
+        context
+            .spawn(move |ready| {
+                Aggregator::launch(cfg, dispatcher, loader, stream, reader::restore, rx, ready)
+            })
+            .await;
+        context
+            .spawn_notify(move |ready, notify| consume(agg_type, cc, tx, commit_tx, ready, notify))
+            .await;
     }
 }
 
 #[instrument(name = "receive_command", skip(cc, tx, commit_tx))]
-async fn consumer(
+async fn consume(
     agg_type: &'static str,
     cc: Arc<StreamConsumer>,
     tx: mpsc::UnboundedSender<Com>,
     commit_tx: mpsc::UnboundedSender<Commit>,
+    ready: Arc<Notify>,
+    notify: Arc<Notify>,
 ) {
     let message_stream = cc.stream();
-    // let shutdown_rx = shutdown();
-    // let shutdown = shutdown_rx.notified();
     tokio::pin!(message_stream);
-    // tokio::pin!(shutdown);
+    let notified = notify.notified();
+    tokio::pin!(notified);
+    ready.notify_one();
     loop {
         tokio::select! {
             biased;
-            // _ = &mut shutdown => {
-            //     info!("收到关闭信号，开始优雅退出");
-            //     break;
-            // }
+            _ = &mut notified => {
+                info!("收到关闭信号，开始优雅退出");
+                break;
+            }
             Some(msg) = message_stream.next() => match msg {
                 Ok(msg) => {
                     match process_message(&msg).await {
