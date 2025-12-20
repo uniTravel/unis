@@ -2,8 +2,8 @@ use unis::{
     BINCODE_CONFIG,
     domain::{Command, Event, Load},
     errors::UniError,
+    macros::*,
 };
-use unis_macros::*;
 use uuid::Uuid;
 
 #[aggregate]

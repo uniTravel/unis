@@ -9,7 +9,6 @@ repository.workspace = true
 
 [dependencies]
 unis.workspace = true
-unis-macros.workspace = true
 
 tokio.workspace = true
 uuid.workspace = true

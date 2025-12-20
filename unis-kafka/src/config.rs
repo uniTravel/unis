@@ -48,7 +48,7 @@ pub(crate) fn load_bootstrap(config: &config::Config) -> String {
 }
 
 #[inline]
-fn load_hostname(config: &config::Config) -> String {
+pub(crate) fn load_hostname(config: &config::Config) -> String {
     match config.get("hostname") {
         Ok(c) => c,
         Err(e) => {
@@ -98,6 +98,7 @@ fn load_sender() -> SenderConfig {
     let hostname = load_hostname(&config);
     let timeout = load_timeout(&config);
     let sender = load_named_config(&config, "sender");
+    let tc = load_named_setting(&config, "tc");
     let cp = match config.get::<HashMap<String, String>>("cp") {
         Ok(c) => c,
         Err(e) => {
@@ -110,6 +111,7 @@ fn load_sender() -> SenderConfig {
         hostname,
         timeout,
         sender,
+        tc,
         cp,
     }
 }
@@ -164,6 +166,7 @@ pub struct SenderConfig {
     pub hostname: String,
     pub timeout: Duration,
     pub sender: NamedConfig<SendConfig>,
+    pub tc: HashMap<String, HashMap<String, String>>,
     pub cp: HashMap<String, String>,
 }
 

@@ -1,13 +1,8 @@
 //! Kafka 发送者内核
 
-use crate::{
-    BINCODE_HEADER, Context,
-    commit::{Commit, commit_coordinator},
-    config::SenderConfig,
-};
+use crate::{BINCODE_HEADER, Context, config::SenderConfig};
 use ahash::AHashMap;
 use bincode::error::EncodeError;
-use futures::StreamExt;
 use rdkafka::{
     ClientConfig, Message,
     consumer::{Consumer, StreamConsumer},
@@ -124,6 +119,10 @@ where
         let agg_type = A::topic();
         Span::current().record("agg_type", agg_type);
         let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
+        let settings = SENDER_CONFIG
+            .tc
+            .get(cfg_name)
+            .expect("获取发送者消费配置失败");
         let cfg = SENDER_CONFIG.sender.get(cfg_name);
         let topic = A::topic_com();
         let producer = match cfg.hotspot {
@@ -133,28 +132,23 @@ where
         info!("成功创建 {topic} 命令生产者");
 
         let mut config = ClientConfig::new();
+        for (key, value) in settings {
+            config.set(key, value);
+        }
         config.set("bootstrap.servers", &SENDER_CONFIG.bootstrap);
         config.set("group.id", format!("{agg_type}-{}", SENDER_CONFIG.hostname));
-        config.set("enable.auto.commit", "false");
         let tc: Arc<StreamConsumer> = Arc::new(config.create().expect("发送者消费创建失败"));
         tc.subscribe(&[agg_type]).expect("订阅类型事件流失败");
         info!("成功订阅事件流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Todo<A, C>>();
-        let (commit_tx, commit_rx) = mpsc::unbounded_channel::<Commit>();
         let pool = Arc::new(BufferPool::new(cfg.bufs, cfg.sems));
-        let consumer = tc.clone();
-        context
-            .spawn(move |ready| commit_coordinator(topic, consumer, commit_rx, ready))
-            .await;
         context
             .spawn(move |ready| Self::respond(agg_type, producer, topic, pool, cfg, rx, ready))
             .await;
         let tx_clone = tx.clone();
         context
-            .spawn_notify(move |ready, notify| {
-                Self::consume(agg_type, tc, tx_clone, commit_tx, ready, notify)
-            })
+            .spawn_notify(move |ready, notify| Self::consume(agg_type, tc, tx_clone, ready, notify))
             .await;
 
         Self {
@@ -285,12 +279,11 @@ where
         }
     }
 
-    #[instrument(name = "aggregate_consume", skip(tc, tx, commit_tx, ready, notify))]
+    #[instrument(name = "aggregate_consume", skip(tc, tx, ready, notify))]
     async fn consume(
         agg_type: &'static str,
         tc: Arc<StreamConsumer>,
         tx: mpsc::UnboundedSender<Todo<A, C>>,
-        commit_tx: mpsc::UnboundedSender<Commit>,
         ready: Arc<Notify>,
         notify: Arc<Notify>,
     ) {
@@ -306,7 +299,7 @@ where
                     info!("收到关闭信号，开始优雅退出");
                     break;
                 }
-                Some(msg) = message_stream.next() => match msg {
+                data = tc.recv() => match data {
                     Ok(msg) => {
                         match process_message(&msg).await {
                             Ok((agg_id, com_id, res)) => {
@@ -318,9 +311,6 @@ where
                                 });
                             }
                             Err(e) => error!("{e}"),
-                        }
-                        if let Err(e) = commit_tx.send(Commit::from(&msg)) {
-                            error!("发送消费偏移量错误：{e}");
                         }
                     }
                     Err(e) => error!("消息错误：{e}"),

@@ -9,11 +9,12 @@ sems = 300
 sems = 50
 
 [cc.Note]
-"session.timeout.ms" = "6000"
-"enable.auto.commit" = "false"
-"auto.offset.reset" = "latest"
-"fetch.message.max.bytes" = "10485760"
-"queued.min.messages" = "1000"
+"auto.offset.reset" = "earliest"
+"auto.commit.interval.ms" = "1000"
+
+[tc.Note]
+"auto.offset.reset" = "earliest"
+"auto.commit.interval.ms" = "1000"
 
 [tp]
 "linger.ms" = "1"

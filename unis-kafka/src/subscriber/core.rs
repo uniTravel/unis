@@ -1,8 +1,6 @@
 //! Kafka 订阅者内核
 
 use super::{SUBSCRIBER_CONFIG, app::App, reader, stream::Writer};
-use crate::commit::{Commit, commit_coordinator};
-use futures::StreamExt;
 use rdkafka::{
     ClientConfig, Message,
     consumer::{Consumer, StreamConsumer},
@@ -63,29 +61,23 @@ where
         info!("成功订阅 {topic} 命令流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Com>();
-        let (commit_tx, commit_rx) = mpsc::unbounded_channel::<Commit>();
         let stream = Arc::new(Writer::new(&cfg, context.topic_tx()));
-        let consumer = cc.clone();
-        context
-            .spawn(move |ready| commit_coordinator(topic, consumer, commit_rx, ready))
-            .await;
         context
             .spawn(move |ready| {
                 Aggregator::launch(cfg, dispatcher, loader, stream, reader::restore, rx, ready)
             })
             .await;
         context
-            .spawn_notify(move |ready, notify| consume(agg_type, cc, tx, commit_tx, ready, notify))
+            .spawn_notify(move |ready, notify| consume(agg_type, cc, tx, ready, notify))
             .await;
     }
 }
 
-#[instrument(name = "receive_command", skip(cc, tx, commit_tx))]
+#[instrument(name = "receive_command", skip(cc, tx))]
 async fn consume(
     agg_type: &'static str,
     cc: Arc<StreamConsumer>,
     tx: mpsc::UnboundedSender<Com>,
-    commit_tx: mpsc::UnboundedSender<Commit>,
     ready: Arc<Notify>,
     notify: Arc<Notify>,
 ) {
@@ -101,7 +93,7 @@ async fn consume(
                 info!("收到关闭信号，开始优雅退出");
                 break;
             }
-            Some(msg) = message_stream.next() => match msg {
+            data = cc.recv() => match data {
                 Ok(msg) => {
                     match process_message(&msg).await {
                         Ok((agg_id, com_id, com_data)) => {
@@ -114,9 +106,6 @@ async fn consume(
                             });
                         }
                         Err(e) => error!("{e}"),
-                    }
-                    if let Err(e) = commit_tx.send(Commit::from(&msg)) {
-                        error!("发送消费偏移量错误：{e}");
                     }
                 }
                 Err(e) => error!("消息错误：{e}"),

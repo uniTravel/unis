@@ -12,6 +12,8 @@ repository.workspace = true
 test-utils = []
 
 [dependencies]
+unis-macros.workspace = true
+
 uuid.workspace = true
 ahash.workspace = true
 crossbeam.workspace = true

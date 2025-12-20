@@ -6,8 +6,8 @@ publish = false
 edition.workspace = true
 
 [dev-dependencies]
-unis = { path = "../unis" }
-unis-macros = { path = "../unis-macros" }
+unis.workspace = true
+
 uuid.workspace = true
 tracing.workspace = true
 validator.workspace = true

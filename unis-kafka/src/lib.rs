@@ -3,7 +3,6 @@
 //!
 #![warn(missing_docs)]
 
-mod commit;
 mod config;
 
 #[cfg(feature = "projector")]

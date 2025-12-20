@@ -4,6 +4,10 @@
 
 #![warn(missing_docs)]
 
+#[doc(hidden)]
+pub mod macros {
+    pub use unis_macros::*;
+}
 pub mod aggregator;
 pub mod config;
 pub mod domain;
