@@ -216,7 +216,6 @@ where
     ) {
         let mut agg = A::new(agg_id);
 
-        // let _shutdown_rx = shutdown().notified();
         loop {
             match agg_rx.recv().await {
                 Some(ComSemaphore {

@@ -81,7 +81,7 @@ where
     A: Aggregate + Sync,
     C: CommandEnum<A = A> + Sync + 'static,
 {
-    #[instrument(name = "send_command", skip_all, fields(agg_type = self.agg_type, agg_id, com_id))]
+    #[instrument(name = "send_command", skip_all, fields(agg_type = self.agg_type, %agg_id, %com_id))]
     async fn send(&self, agg_id: Uuid, com_id: Uuid, com: C) -> Response {
         let (res_tx, res_rx) = oneshot::channel::<Response>();
         if let Err(e) = self.tx.send(Todo::Reply {
@@ -144,7 +144,9 @@ where
         let (tx, rx) = mpsc::unbounded_channel::<Todo<A, C>>();
         let pool = Arc::new(BufferPool::new(cfg.bufs, cfg.sems));
         context
-            .spawn(move |ready| Self::respond(agg_type, producer, topic, pool, cfg, rx, ready))
+            .spawn_notify(move |ready, notify| {
+                Self::respond(agg_type, producer, topic, pool, cfg, rx, ready, notify)
+            })
             .await;
         let tx_clone = tx.clone();
         context
@@ -161,7 +163,7 @@ where
 
     #[instrument(
         name = "aggregate_respond",
-        skip(producer, topic, pool, cfg, rx, ready)
+        skip(producer, topic, pool, cfg, rx, ready, notify)
     )]
     async fn respond(
         agg_type: &'static str,
@@ -171,6 +173,7 @@ where
         cfg: SendConfig,
         mut rx: mpsc::UnboundedReceiver<Todo<A, C>>,
         ready: Arc<Notify>,
+        notify: Arc<Notify>,
     ) {
         let mut rs: AHashMap<Uuid, (Option<oneshot::Sender<Response>>, Option<Response>, Instant)> =
             AHashMap::new();
@@ -178,10 +181,16 @@ where
         let mut interval = interval_at(start, Duration::from_secs(cfg.interval));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
+        let notified = notify.notified();
+        tokio::pin!(notified);
         ready.notify_one();
         loop {
             tokio::select! {
                 biased;
+                _ = &mut notified => {
+                    info!("收到关闭信号，开始优雅退出");
+                    break;
+                }
                 _ = interval.tick() => {
                     let _ = rs.extract_if(|_, (_, _, t)| t.elapsed() > Duration::from_secs(cfg.retain));
                 }
@@ -287,8 +296,6 @@ where
         ready: Arc<Notify>,
         notify: Arc<Notify>,
     ) {
-        let message_stream = tc.stream();
-        tokio::pin!(message_stream);
         let notified = notify.notified();
         tokio::pin!(notified);
         ready.notify_one();

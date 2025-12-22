@@ -124,14 +124,14 @@ async fn topic_creator(
             _ = &mut notified => {
                 info!("收到关闭信号，开始优雅退出");
                 if !batch.is_empty() {
-                    info!("优雅退出，提交聚合主题创建");
+                    info!("优雅退出，提交聚合主题批量创建");
                     topic_batch(&mut batch).await;
                 }
                 break;
             }
             _ = interval.tick() => {
                 if !batch.is_empty() && last_flush.elapsed() > Duration::from_millis(5) {
-                    debug!("触及提交间隔阈值，提交聚合主题创建");
+                    debug!("触及提交间隔阈值，提交聚合主题批量创建");
                     topic_batch(&mut batch).await;
                     debug!("结束聚合主题批量创建");
                     last_flush = Instant::now();
@@ -152,7 +152,7 @@ async fn topic_creator(
                         });
 
                         if count == threshold {
-                            debug!("触及提交计数阈值，提交聚合主题创建");
+                            debug!("触及提交计数阈值，提交聚合主题批量创建");
                             topic_batch(&mut batch).await;
                             last_flush = Instant::now();
                             count = 0;
@@ -163,7 +163,7 @@ async fn topic_creator(
                     None => {
                         info!("发送端均已关闭，开始优雅退出");
                         if !batch.is_empty() {
-                            info!("优雅退出，提交聚合主题创建");
+                            info!("优雅退出，提交聚合主题批量创建");
                             topic_batch(&mut batch).await;
                         }
                         break;

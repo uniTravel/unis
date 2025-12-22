@@ -73,7 +73,7 @@ where
     }
 }
 
-#[instrument(name = "receive_command", skip(cc, tx))]
+#[instrument(name = "receive_command", skip(cc, tx, ready, notify))]
 async fn consume(
     agg_type: &'static str,
     cc: Arc<StreamConsumer>,
@@ -81,8 +81,6 @@ async fn consume(
     ready: Arc<Notify>,
     notify: Arc<Notify>,
 ) {
-    let message_stream = cc.stream();
-    tokio::pin!(message_stream);
     let notified = notify.notified();
     tokio::pin!(notified);
     ready.notify_one();

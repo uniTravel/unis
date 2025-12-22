@@ -3,6 +3,6 @@
 //!
 #![cfg(feature = "test-utils")]
 
-pub(crate) mod command;
+mod command;
 
 pub mod kube;
