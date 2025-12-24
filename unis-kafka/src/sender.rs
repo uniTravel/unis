@@ -1,4 +1,7 @@
-//! ## Kafka 发送者
+//! # Kafka 发送者
 
 pub mod app;
-pub mod core;
+pub(self) mod core;
+
+pub use app::App;
+pub use app::context;

@@ -116,7 +116,7 @@ where
             Ok(agg_coms) => {
                 for (agg_id, coms) in agg_coms {
                     let (agg_tx, agg_rx) = mpsc::unbounded_channel::<ComSemaphore>();
-                    tokio::spawn(Self::processor(
+                    tokio::spawn(Self::process(
                         agg_type,
                         agg_id,
                         pool.clone(),
@@ -170,7 +170,7 @@ where
                                             }
                                         } else {
                                             let (agg_tx, agg_rx) = mpsc::unbounded_channel::<ComSemaphore>();
-                                            tokio::spawn(Self::processor(
+                                            tokio::spawn(Self::process(
                                                 agg_type,
                                                 agg_id,
                                                 pool.clone(),
@@ -201,10 +201,10 @@ where
     }
 
     #[instrument(
-        name = "aggregate_processor",
+        name = "process_aggregate",
         skip(pool, dispatcher, loader, stream, coms, agg_rx)
     )]
-    async fn processor(
+    async fn process(
         agg_type: &'static str,
         agg_id: Uuid,
         pool: Arc<BufferPool>,

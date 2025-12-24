@@ -1,7 +1,7 @@
 //! Kafka 订阅者上下文
 
 use super::{SUBSCRIBER_CONFIG, TopicTask};
-use crate::{Context, config::load_bootstrap};
+use crate::{Context, config::load_bootstrap, subscriber::core::Subscriber};
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
@@ -17,7 +17,10 @@ use tokio::{
     time::{Duration, Instant},
 };
 use tracing::{debug, debug_span, error, info};
-use unis::config::build_config;
+use unis::{
+    config::build_config,
+    domain::{Aggregate, Dispatch, EventEnum, Load},
+};
 
 static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
     let config = build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
@@ -89,6 +92,22 @@ impl App {
         }
     }
 
+    /// 设置特定聚合类型的订阅者
+    pub async fn setup<A, D, E, L>(self: &Arc<Self>, dispatcher: D, loader: L)
+    where
+        A: Aggregate + Clone,
+        D: Dispatch<A, E, L>,
+        E: EventEnum<A = A>,
+        L: Load,
+    {
+        if let Err(e) = Subscriber::launch(Arc::clone(self), dispatcher, loader).await {
+            error!(e);
+            self.shutdown().await;
+            self.all_done().await;
+            panic!("异常退出订阅者初始设置")
+        }
+    }
+
     pub(super) fn topic_tx(&self) -> mpsc::UnboundedSender<TopicTask> {
         self.topic_tx.clone()
     }
@@ -108,7 +127,7 @@ async fn topic_creator(
     notify: Arc<Notify>,
 ) {
     info!("启动聚合主题创建者");
-    let capacity = 20;
+    let capacity = 1000;
     let mut batch = Vec::with_capacity(capacity);
     let mut last_flush = Instant::now();
     let mut interval = tokio::time::interval(Duration::from_millis(1));

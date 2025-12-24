@@ -1,6 +1,4 @@
-//! Kafka 发送者内核
-
-use crate::{BINCODE_HEADER, Context, config::SenderConfig};
+use crate::{BINCODE_HEADER, config::SenderConfig, sender::app::App};
 use ahash::AHashMap;
 use bincode::error::EncodeError;
 use rdkafka::{
@@ -63,7 +61,6 @@ where
     },
 }
 
-/// 发送者结构
 #[derive(Debug)]
 pub struct Sender<A, C>
 where
@@ -113,9 +110,8 @@ where
     A: Aggregate + Sync,
     C: CommandEnum<A = A> + Sync + 'static,
 {
-    /// 发送者构造函数
     #[instrument(name = "build_sender", skip_all, fields(agg_type))]
-    pub async fn new(context: Arc<Context>) -> Self {
+    pub async fn new(context: Arc<App>) -> Result<Self, String> {
         let agg_type = A::topic();
         Span::current().record("agg_type", agg_type);
         let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
@@ -153,12 +149,12 @@ where
             .spawn_notify(move |ready, notify| Self::consume(agg_type, tc, tx_clone, ready, notify))
             .await;
 
-        Self {
+        Ok(Self {
             agg_type,
             tx,
             _marker_a: PhantomData,
             _marker_c: PhantomData,
-        }
+        })
     }
 
     #[instrument(

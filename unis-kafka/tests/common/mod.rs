@@ -18,11 +18,7 @@ pub(crate) use unis::{
     domain::{Aggregate, Request},
     test_utils::kube::{HelmRelease, KubeCluster},
 };
-pub(crate) use unis_kafka::{
-    Context,
-    sender::{self, core::Sender},
-    subscriber::{self, core::Subscriber, reader},
-};
+pub(crate) use unis_kafka::{sender, subscriber};
 pub(crate) use uuid::Uuid;
 
 pub(crate) static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
@@ -82,6 +78,6 @@ pub(crate) async fn ctx_subscriber() -> Arc<subscriber::app::App> {
 }
 
 #[fixture]
-pub(crate) async fn ctx_sender() -> Arc<Context> {
+pub(crate) async fn ctx_sender() -> Arc<sender::app::App> {
     sender::app::test_context().await
 }

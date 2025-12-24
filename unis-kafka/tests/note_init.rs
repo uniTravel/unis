@@ -15,10 +15,12 @@ async fn init(#[future(awt)] _external_setup: ()) {
 async fn create_note(
     #[future(awt)] _init: (),
     #[future(awt)] ctx_subscriber: Arc<subscriber::app::App>,
-    #[future(awt)] ctx_sender: Arc<Context>,
+    #[future(awt)] ctx_sender: Arc<sender::app::App>,
 ) {
-    Subscriber::launch(Arc::clone(&ctx_subscriber), note::dispatcher, reader::load).await;
-    let sender = Sender::new(Arc::clone(&ctx_sender)).await;
+    ctx_subscriber
+        .setup(note::dispatcher, subscriber::load)
+        .await;
+    let sender = ctx_sender.setup().await;
 
     let note = CreateNote {
         title: "title".to_string(),

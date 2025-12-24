@@ -11,7 +11,7 @@ use unis::errors::UniError;
 static CONFIG: LazyLock<ClientConfig> = LazyLock::new(|| {
     ClientConfig::new()
         .set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap)
-        .set("group.id", "agg_reader")
+        .set("group.id", "agg-reader")
         .set("auto.offset.reset", "earliest")
         .set("enable.auto.commit", "false")
         .set("isolation.level", "read_committed")

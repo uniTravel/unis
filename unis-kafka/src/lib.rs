@@ -76,19 +76,24 @@ impl Context {
         {
             info!("开始优雅退出");
             self.notify.notify_waiters();
-            let mut tasks = self.tasks.lock().await;
-            while let Some(result) = tasks.join_next().await {
-                if let Err(e) = result {
-                    error!("后台任务发生错误：{e}");
-                }
-            }
-            info!("优雅退出所有后台任务");
         }
+    }
+
+    /// 等待所有后台任务优雅退出
+    pub async fn all_done(&self) {
+        let mut tasks = self.tasks.lock().await;
+        while let Some(result) = tasks.join_next().await {
+            if let Err(e) = result {
+                error!("后台任务发生错误：{e}");
+            }
+        }
+        info!("优雅退出所有后台任务");
     }
 
     #[doc(hidden)]
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn teardown(&self) {
         self.shutdown().await;
+        self.all_done().await;
     }
 }

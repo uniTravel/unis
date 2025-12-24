@@ -1,4 +1,4 @@
-//! ## Kafka 订阅者
+//! # Kafka 订阅者
 
 mod pool;
 mod stream;
@@ -6,8 +6,12 @@ mod stream;
 mod tests;
 
 pub mod app;
-pub mod core;
-pub mod reader;
+pub(self) mod core;
+pub(self) mod reader;
+
+pub use app::App;
+pub use app::context;
+pub use reader::load;
 
 use crate::config::SubscriberConfig;
 use std::sync::LazyLock;

@@ -4,10 +4,6 @@
 
 #![warn(missing_docs)]
 
-#[doc(hidden)]
-pub mod macros {
-    pub use unis_macros::*;
-}
 pub mod aggregator;
 pub mod config;
 pub mod domain;
@@ -15,6 +11,11 @@ pub mod errors;
 pub mod pool;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
+
+#[doc(hidden)]
+pub mod macros {
+    pub use unis_macros::*;
+}
 
 use bincode::config::Configuration;
 use tokio::sync::OwnedSemaphorePermit;

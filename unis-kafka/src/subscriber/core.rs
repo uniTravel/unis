@@ -1,5 +1,3 @@
-//! Kafka 订阅者内核
-
 use super::{SUBSCRIBER_CONFIG, app::App, reader, stream::Writer};
 use rdkafka::{
     ClientConfig, Message,
@@ -17,7 +15,6 @@ use unis::{
 };
 use uuid::Uuid;
 
-/// 订阅者结构
 pub struct Subscriber<A, D, E, L>
 where
     A: Aggregate,
@@ -38,16 +35,15 @@ where
     E: EventEnum<A = A>,
     L: Load,
 {
-    /// 启动订阅者
     #[instrument(name = "launch_subscriber", skip_all, fields(agg_type))]
-    pub async fn launch(context: Arc<App>, dispatcher: D, loader: L) {
+    pub async fn launch(context: Arc<App>, dispatcher: D, loader: L) -> Result<(), String> {
         let agg_type = A::topic();
         Span::current().record("agg_type", agg_type);
-        let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
+        let cfg_name = agg_type.rsplit(".").next().ok_or("获取聚合名称失败")?;
         let settings = SUBSCRIBER_CONFIG
             .cc
             .get(cfg_name)
-            .expect("获取订阅者消费配置失败");
+            .ok_or("获取订阅者消费配置失败")?;
         let cfg = SUBSCRIBER_CONFIG.subscriber.get(cfg_name);
         let topic = A::topic_com();
         let mut config = ClientConfig::new();
@@ -56,8 +52,13 @@ where
         }
         config.set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap);
         config.set("group.id", topic);
-        let cc: Arc<StreamConsumer> = Arc::new(config.create().expect("订阅者消费创建失败"));
-        cc.subscribe(&[topic]).expect("订阅命令流失败");
+        let cc: Arc<StreamConsumer> = Arc::new(
+            config
+                .create()
+                .map_err(|e| format!("订阅者消费创建失败：{e}"))?,
+        );
+        cc.subscribe(&[topic])
+            .map_err(|e| format!("订阅命令流失败：{e}"))?;
         info!("成功订阅 {topic} 命令流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Com>();
@@ -70,6 +71,7 @@ where
         context
             .spawn_notify(move |ready, notify| consume(agg_type, cc, tx, ready, notify))
             .await;
+        Ok(())
     }
 }
 
