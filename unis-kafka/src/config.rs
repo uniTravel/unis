@@ -37,12 +37,12 @@ fn load_named_setting(
 }
 
 #[inline]
-pub(crate) fn load_bootstrap(config: &config::Config) -> String {
-    match config.get("bootstrap") {
+pub(crate) fn load_name(config: &config::Config) -> String {
+    match config.get("name") {
         Ok(c) => c,
         Err(e) => {
-            error!("加载'bootstrap'配置失败：{e}");
-            panic!("加载'bootstrap'配置失败");
+            error!("加载'name'配置失败：{e}");
+            panic!("加载'name'配置失败");
         }
     }
 }
@@ -54,6 +54,17 @@ pub(crate) fn load_hostname(config: &config::Config) -> String {
         Err(e) => {
             error!("加载'hostname'配置失败：{e}");
             panic!("加载'hostname'配置失败");
+        }
+    }
+}
+
+#[inline]
+pub(crate) fn load_bootstrap(config: &config::Config) -> String {
+    match config.get("bootstrap") {
+        Ok(c) => c,
+        Err(e) => {
+            error!("加载'bootstrap'配置失败：{e}");
+            panic!("加载'bootstrap'配置失败");
         }
     }
 }

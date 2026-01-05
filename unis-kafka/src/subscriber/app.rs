@@ -51,13 +51,7 @@ pub async fn context() -> Arc<App> {
                     .await;
                 let app_clone = Arc::clone(&app);
                 tokio::spawn(async move {
-                    match tokio::signal::ctrl_c().await {
-                        Ok(_) => info!("收到 Ctrl-C 信号"),
-                        Err(e) => {
-                            error!("监听 Ctrl-C 信号失败: {e}");
-                            info!("启用备用关闭机制");
-                        }
-                    }
+                    crate::shutdown_signal().await;
                     app_clone.shutdown().await;
                 });
                 app

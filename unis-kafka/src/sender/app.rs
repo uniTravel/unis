@@ -3,7 +3,7 @@
 use crate::{Context, sender::core::Sender};
 use std::{ops::Deref, sync::Arc};
 use tokio::sync::OnceCell;
-use tracing::{error, info};
+use tracing::error;
 use unis::domain::{Aggregate, CommandEnum};
 
 static CONTEXT: OnceCell<Arc<App>> = OnceCell::const_new();
@@ -15,13 +15,7 @@ pub async fn context() -> Arc<App> {
                 let app = Arc::new(App::new());
                 let app_clone = Arc::clone(&app);
                 tokio::spawn(async move {
-                    match tokio::signal::ctrl_c().await {
-                        Ok(_) => info!("收到 Ctrl-C 信号"),
-                        Err(e) => {
-                            error!("监听 Ctrl-C 信号失败: {e}");
-                            info!("启用备用关闭机制");
-                        }
-                    }
+                    crate::shutdown_signal().await;
                     app_clone.shutdown().await;
                 });
                 app
@@ -60,7 +54,7 @@ impl App {
                 error!(e);
                 self.shutdown().await;
                 self.all_done().await;
-                panic!("异常退出订阅者初始设置")
+                panic!("异常退出发送者初始设置")
             }
         }
     }

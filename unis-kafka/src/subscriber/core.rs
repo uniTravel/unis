@@ -95,7 +95,7 @@ async fn consume(
             }
             data = cc.recv() => match data {
                 Ok(msg) => {
-                    match process_message(&msg).await {
+                    match process_message(&msg) {
                         Ok((agg_id, com_id, com_data)) => {
                             let span = info_span!(parent: None, "handle_command", agg_type, %agg_id, %com_id);
                             span.clone().in_scope(|| {
@@ -114,7 +114,7 @@ async fn consume(
     }
 }
 
-async fn process_message(msg: &BorrowedMessage<'_>) -> Result<(Uuid, Uuid, Vec<u8>), UniError> {
+fn process_message(msg: &BorrowedMessage<'_>) -> Result<(Uuid, Uuid, Vec<u8>), UniError> {
     let key = msg.key().ok_or("消息键不存在")?;
     let agg_id = Uuid::from_slice(key).map_err(|e| UniError::MsgError(e.to_string()))?;
     debug!("提取聚合Id：{agg_id}");
