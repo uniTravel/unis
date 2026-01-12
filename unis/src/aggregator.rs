@@ -130,11 +130,11 @@ where
                 }
             }
             Err(e) => {
-                error!("恢复命令操作记录失败：{e}");
-                panic!("恢复命令操作记录失败");
+                error!("恢复聚合命令操作记录失败：{e}");
+                panic!("恢复聚合命令操作记录失败");
             }
         }
-        info!("成功恢复最近 {latest} 分钟的命令操作记录");
+        info!("成功恢复最近 {latest} 分钟的聚合命令操作记录");
         info!("聚合器准备就绪");
 
         ready.notify_one();
@@ -263,13 +263,13 @@ where
                                             .await
                                         {
                                             Ok(()) => {
-                                                info!("聚合命令写入成功");
+                                                info!("聚合类型事件写入成功");
                                                 na.next();
                                                 agg = na;
                                                 coms.insert(com_id);
                                             }
                                             Err(e) => {
-                                                error!("聚合命令写入失败：{e}");
+                                                error!("聚合类型事件写入失败：{e}");
                                                 match stream
                                                     .respond(
                                                         agg_type,
@@ -281,17 +281,17 @@ where
                                                     .await
                                                 {
                                                     Ok(()) => {
-                                                        info!("聚合命令写入失败反馈成功");
+                                                        info!("聚合类型事件写入失败反馈成功");
                                                         coms.insert(com_id);
                                                     }
                                                     Err(e) => {
-                                                        error!("聚合命令写入失败反馈失败：{e}")
+                                                        error!("聚合类型事件写入失败反馈失败：{e}")
                                                     }
                                                 }
                                             }
                                         },
                                         Err(e) => {
-                                            error!("聚合命令事件序列化错误：{e}");
+                                            error!("聚合类型事件序列化错误：{e}");
                                             match stream
                                                 .respond(
                                                     agg_type,
@@ -303,11 +303,11 @@ where
                                                 .await
                                             {
                                                 Ok(()) => {
-                                                    info!("聚合命令事件序列化错误反馈成功");
+                                                    info!("聚合类型事件序列化错误反馈成功");
                                                     coms.insert(com_id);
                                                 }
                                                 Err(e) => {
-                                                    error!("聚合命令事件序列化错误反馈失败：{e}")
+                                                    error!("聚合类型事件序列化错误反馈失败：{e}")
                                                 }
                                             }
                                         }

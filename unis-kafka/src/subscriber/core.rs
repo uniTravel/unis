@@ -58,8 +58,8 @@ where
                 .map_err(|e| format!("订阅者消费创建失败：{e}"))?,
         );
         cc.subscribe(&[topic])
-            .map_err(|e| format!("订阅命令流失败：{e}"))?;
-        info!("成功订阅 {topic} 命令流");
+            .map_err(|e| format!("订阅聚合命令流失败：{e}"))?;
+        info!("成功订阅 {topic} 聚合命令流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Com>();
         let stream = Arc::new(Writer::new(&cfg, context.topic_tx()));
@@ -101,7 +101,7 @@ async fn consume(
                             span.clone().in_scope(|| {
                                 match tx.send(Com{agg_id, com_id, com_data, span}) {
                                     Ok(()) => info!("提交聚合命令"),
-                                    Err(e) => error!("提交聚合命令错误：{e}"),
+                                    Err(e) => error!("提交聚合命令失败：{e}"),
                                 }
                             });
                         }

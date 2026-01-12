@@ -12,7 +12,7 @@ pub async fn context() -> Arc<App> {
     Arc::clone(
         CONTEXT
             .get_or_init(|| async {
-                let app = Arc::new(App::new());
+                let app = App::new();
                 let app_clone = Arc::clone(&app);
                 tokio::spawn(async move {
                     crate::shutdown_signal().await;
@@ -27,7 +27,7 @@ pub async fn context() -> Arc<App> {
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
 pub async fn test_context() -> Arc<App> {
-    Arc::new(App::new())
+    App::new()
 }
 
 /// 发送者上下文结构
@@ -36,10 +36,10 @@ pub struct App {
 }
 
 impl App {
-    fn new() -> Self {
-        Self {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
             context: Context::new(),
-        }
+        })
     }
 
     /// 设置特定聚合类型的发送者

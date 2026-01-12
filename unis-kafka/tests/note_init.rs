@@ -1,5 +1,8 @@
 mod common;
+
 use crate::common::*;
+use std::sync::Mutex;
+use unis_kafka::projector;
 
 #[fixture]
 async fn init(#[future(awt)] _external_setup: ()) {
@@ -16,7 +19,13 @@ async fn create_note(
     #[future(awt)] _init: (),
     #[future(awt)] ctx_subscriber: Arc<subscriber::app::App>,
     #[future(awt)] ctx_sender: Arc<sender::app::App>,
+    #[future(awt)] ctx_projector: Arc<Mutex<projector::app::App>>,
 ) {
+    std::thread::spawn(move || {
+        let mut guard = ctx_projector.lock().unwrap();
+        guard.subscribe::<note::Note>();
+        guard.launch();
+    });
     ctx_subscriber
         .setup(note::dispatcher, subscriber::load)
         .await;
@@ -34,4 +43,5 @@ async fn create_note(
     assert_eq!(response, Response::Success);
     ctx_sender.teardown().await;
     ctx_subscriber.teardown().await;
+    projector::App::teardown();
 }

@@ -30,7 +30,7 @@ static SENDER_CONFIG: LazyLock<SenderConfig> = LazyLock::new(|| SenderConfig::ge
 static SHARED_CP: LazyLock<Arc<FutureProducer>> = LazyLock::new(|| {
     let mut config = ClientConfig::new();
     config.set("bootstrap.servers", &SENDER_CONFIG.bootstrap);
-    Arc::new(config.create().expect("共享的聚合类型生产者创建失败"))
+    Arc::new(config.create().expect("共享的聚合命令生产者创建失败"))
 });
 
 static CP_CONFIG: LazyLock<ClientConfig> = LazyLock::new(|| {
@@ -122,10 +122,10 @@ where
         let cfg = SENDER_CONFIG.sender.get(cfg_name);
         let topic = A::topic_com();
         let producer = match cfg.hotspot {
-            true => Arc::new(CP_CONFIG.create().expect("命令生产者创建失败")),
+            true => Arc::new(CP_CONFIG.create().expect("聚合命令生产者创建失败")),
             false => SHARED_CP.clone(),
         };
-        info!("成功创建 {topic} 命令生产者");
+        info!("成功创建 {topic} 聚合命令生产者");
 
         let mut config = ClientConfig::new();
         for (key, value) in settings {
@@ -134,8 +134,8 @@ where
         config.set("bootstrap.servers", &SENDER_CONFIG.bootstrap);
         config.set("group.id", format!("{agg_type}-{}", SENDER_CONFIG.hostname));
         let tc: Arc<StreamConsumer> = Arc::new(config.create().expect("发送者消费创建失败"));
-        tc.subscribe(&[agg_type]).expect("订阅类型事件流失败");
-        info!("成功订阅事件流");
+        tc.subscribe(&[agg_type]).expect("订阅聚合类型事件流失败");
+        info!("成功订阅聚合类型事件流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Todo<A, C>>();
         let pool = Arc::new(BufferPool::new(cfg.bufs, cfg.sems));

@@ -5,6 +5,7 @@ pub(crate) use rdkafka::{
     client::DefaultClientContext,
 };
 pub(crate) use rstest::{fixture, rstest};
+use std::sync::Mutex;
 pub(crate) use std::{
     path::PathBuf,
     sync::{Arc, LazyLock},
@@ -18,6 +19,7 @@ pub(crate) use unis::{
     domain::{Aggregate, Request},
     test_utils::kube::{HelmRelease, KubeCluster},
 };
+use unis_kafka::projector;
 pub(crate) use unis_kafka::{sender, subscriber};
 pub(crate) use uuid::Uuid;
 
@@ -80,4 +82,9 @@ pub(crate) async fn ctx_subscriber() -> Arc<subscriber::app::App> {
 #[fixture]
 pub(crate) async fn ctx_sender() -> Arc<sender::app::App> {
     sender::app::test_context().await
+}
+
+#[fixture]
+pub(crate) async fn ctx_projector() -> Arc<Mutex<projector::app::App>> {
+    projector::app::test_context().await
 }

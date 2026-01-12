@@ -46,7 +46,7 @@ pub async fn context() -> Arc<App> {
                 LazyLock::force(&ADMIN);
                 LazyLock::force(&OPTS);
                 let (topic_tx, topic_rx) = mpsc::unbounded_channel::<TopicTask>();
-                let app = Arc::new(App::new(topic_tx));
+                let app = App::new(topic_tx);
                 app.spawn_notify(move |ready, notify| topic_creator(topic_rx, ready, notify))
                     .await;
                 let app_clone = Arc::clone(&app);
@@ -66,7 +66,7 @@ pub async fn test_context() -> Arc<App> {
     LazyLock::force(&ADMIN);
     LazyLock::force(&OPTS);
     let (topic_tx, topic_rx) = mpsc::unbounded_channel::<TopicTask>();
-    let app = Arc::new(App::new(topic_tx));
+    let app = App::new(topic_tx);
     app.spawn_notify(move |ready, notify| topic_creator(topic_rx, ready, notify))
         .await;
     app
@@ -79,11 +79,11 @@ pub struct App {
 }
 
 impl App {
-    fn new(topic_tx: mpsc::UnboundedSender<TopicTask>) -> Self {
-        Self {
+    fn new(topic_tx: mpsc::UnboundedSender<TopicTask>) -> Arc<Self> {
+        Arc::new(Self {
             topic_tx,
             context: Context::new(),
-        }
+        })
     }
 
     /// 设置特定聚合类型的订阅者
