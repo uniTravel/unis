@@ -1,9 +1,12 @@
 #!/bin/bash
 
-(cd unis-macros && cargo publish)
-sed -i '/\[patch.crates-io\]/,+2d' Cargo.toml
+REGISTRY="crates-io"
 
-(cd unis && cargo publish)
-(cd unis-kafka && cargo publish)
+echo "发布 unis-macros..."
+(cd unis-macros && cargo publish --registry $REGISTRY)
 
-git checkout Cargo.toml
+echo "发布 unis..."
+(cd unis && cargo publish --registry $REGISTRY)
+
+echo "发布 unis-kafka..."
+(cd unis-kafka && cargo publish --registry $REGISTRY)

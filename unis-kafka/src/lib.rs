@@ -23,6 +23,7 @@ use tokio::{
 };
 use tracing::{error, info};
 
+#[allow(dead_code)]
 const BINCODE_HEADER: Configuration<LittleEndian, Fixint, Limit<4>> = bincode::config::standard()
     .with_fixed_int_encoding()
     .with_limit::<4>();
@@ -35,6 +36,7 @@ pub struct Context {
 }
 
 impl Context {
+    #[allow(dead_code)]
     fn new() -> Self {
         Self {
             initiated: AtomicBool::new(false),
@@ -43,6 +45,7 @@ impl Context {
         }
     }
 
+    #[allow(dead_code)]
     async fn spawn<F, Fut>(&self, task: F)
     where
         F: FnOnce(Arc<Notify>) -> Fut + Send + 'static,
@@ -55,6 +58,7 @@ impl Context {
         waiter.notified().await;
     }
 
+    #[allow(dead_code)]
     async fn spawn_notify<F, Fut>(&self, task: F)
     where
         F: FnOnce(Arc<Notify>, Arc<Notify>) -> Fut + Send + 'static,
@@ -68,6 +72,7 @@ impl Context {
         waiter.notified().await;
     }
 
+    #[allow(dead_code)]
     async fn shutdown(&self) {
         if self
             .initiated
@@ -98,6 +103,7 @@ impl Context {
     }
 }
 
+#[allow(dead_code)]
 async fn shutdown_signal() {
     #[cfg(unix)]
     {

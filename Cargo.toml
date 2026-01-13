@@ -10,15 +10,10 @@ authors = ["Eric"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/uniTravel/unis"
 
-[patch.crates-io]
-unis = { path = "./unis" }
-unis-macros = { path = "./unis-macros" }
-unis-kafka = { path = "./unis-kafka" }
-
 [workspace.dependencies]
-unis = "0.1.1"
-unis-macros = "0.1.1"
-unis-kafka = "0.1.1"
+unis = { version = "0.1.1", path = "./unis" }
+unis-macros = { version = "0.1.1", path = "./unis-macros" }
+unis-kafka = { version = "0.1.1", path = "./unis-kafka" }
 
 uuid = { version = "1.0", features = ["v4", "serde"] }
 ahash = "0.8"
