@@ -12,7 +12,7 @@ pub mod pool;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
 
-#[doc(hidden)]
+/// # **unis** 宏
 pub mod macros {
     pub use unis_macros::*;
 }

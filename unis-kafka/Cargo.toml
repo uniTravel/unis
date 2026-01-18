@@ -36,7 +36,7 @@ config.workspace = true
 [dev-dependencies]
 domain = { path = "../domain" }
 unis = { workspace = true, features = ["test-utils"] }
-unis-kafka = { path = ".", features = [
+unis-kafka = { workspace = true, features = [
     "subscriber",
     "sender",
     "projector",

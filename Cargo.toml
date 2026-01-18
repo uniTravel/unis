@@ -1,19 +1,28 @@
 [workspace]
 resolver = "3"
-members = ["unis", "unis-macros", "unis-kafka", "domain"]
+members = [
+    "unis",
+    "unis-macros",
+    "unis-kafka",
+    "domain",
+    "demo/bank",
+    "demo/kafka-projector",
+    "demo/kafka-subscriber",
+    "demo/kafka-sender",
+]
 default-members = ["unis", "unis-macros", "unis-kafka"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 authors = ["Eric"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/uniTravel/unis"
 
 [workspace.dependencies]
-unis = { version = "0.1.1", path = "./unis" }
-unis-macros = { version = "0.1.1", path = "./unis-macros" }
-unis-kafka = { version = "0.1.1", path = "./unis-kafka" }
+unis = { version = "0.1.2", path = "./unis" }
+unis-macros = { version = "0.1.2", path = "./unis-macros" }
+unis-kafka = { version = "0.1.2", path = "./unis-kafka" }
 
 uuid = { version = "1.0", features = ["v4", "serde"] }
 ahash = "0.8"

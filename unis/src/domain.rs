@@ -42,6 +42,7 @@ pub trait Command {
     /// 执行命令，生成相应事件
     fn execute(&self, agg: &Self::A) -> Self::E;
     /// 处理命令
+    #[inline]
     fn process(&self, na: &mut Self::A) -> Result<Self::E, UniError> {
         self.check(&na)?;
         let evt = self.execute(&na);

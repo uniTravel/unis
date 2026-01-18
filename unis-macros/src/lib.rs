@@ -142,7 +142,6 @@ pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// 1. 添加 #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]。
 /// 2. 添加 #[repr(u8)]。
-/// 3. 生成基于泛型常量静态分发所需内容。
 ///
 /// # Panics
 ///
@@ -153,21 +152,6 @@ pub fn command_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
     let enum_name = &input.ident;
     let agg_name = parse_macro_input!(attr as Ident);
 
-    let variants = &input.variants;
-    let match_arms = variants.iter().map(|variant| {
-        let variant_name = &variant.ident;
-        let disc = variant
-            .discriminant
-            .as_ref()
-            .map(|(_, expr)| quote! { #expr })
-            .unwrap_or_else(|| {
-                panic!("枚举变体 {} 缺少判别值", variant_name);
-            });
-        quote! {
-            #disc => com.process(agg)
-        }
-    });
-
     let expanded = quote! {
         #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]
         #[repr(u8)]
@@ -175,25 +159,6 @@ pub fn command_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         impl unis::domain::CommandEnum for #enum_name {
             type A = #agg_name;
-        }
-
-        struct Dispatcher<const ID: usize> {}
-        impl<const ID: usize> Dispatcher<ID> {
-            const fn new() -> Self {
-                Self {}
-            }
-
-            #[inline(always)]
-            fn execute<C, E>(&self, com: C, agg: &mut #agg_name) -> Result<E, ::unis::errors::UniError>
-            where
-                C: unis::domain::Command<A = #agg_name, E = E>,
-                E: unis::domain::Event<A = #agg_name>,
-            {
-                match ID {
-                    #(#match_arms,)*
-                    _ => unsafe { std::hint::unreachable_unchecked() },
-                }
-            }
         }
     };
     TokenStream::from(expanded)

@@ -8,45 +8,9 @@ use uuid::Uuid;
 
 #[aggregate]
 pub struct Note {
-    pub title: String,
-    pub content: String,
-    pub grade: u32,
-}
-
-#[event]
-pub struct NoteCreated {
-    pub title: String,
-    pub content: String,
-    pub grade: u32,
-}
-
-impl Event for NoteCreated {
-    type A = Note;
-
-    fn apply(&self, agg: &mut Self::A) {
-        agg.title = self.title.clone();
-        agg.content = self.content.clone();
-        agg.grade = self.grade;
-    }
-}
-
-#[event]
-pub struct NoteChanged {
-    pub content: String,
-}
-
-impl Event for NoteChanged {
-    type A = Note;
-
-    fn apply(&self, agg: &mut Self::A) {
-        agg.content = self.content.clone();
-    }
-}
-
-#[event_enum(Note)]
-pub enum NoteEvent {
-    Created(NoteCreated) = 0,
-    Changed(NoteChanged) = 1,
+    title: String,
+    content: String,
+    grade: u32,
 }
 
 #[command]
@@ -74,6 +38,23 @@ impl Command for CreateNote {
     }
 }
 
+#[event]
+pub struct NoteCreated {
+    title: String,
+    content: String,
+    grade: u32,
+}
+
+impl Event for NoteCreated {
+    type A = Note;
+
+    fn apply(&self, agg: &mut Self::A) {
+        agg.title = self.title.clone();
+        agg.content = self.content.clone();
+        agg.grade = self.grade;
+    }
+}
+
 #[command]
 pub struct ChangeNote {
     #[validate(length(min = 2))]
@@ -95,6 +76,25 @@ impl Command for ChangeNote {
     }
 }
 
+#[event]
+pub struct NoteChanged {
+    content: String,
+}
+
+impl Event for NoteChanged {
+    type A = Note;
+
+    fn apply(&self, agg: &mut Self::A) {
+        agg.content = self.content.clone();
+    }
+}
+
+#[event_enum(Note)]
+pub enum NoteEvent {
+    Created(NoteCreated) = 0,
+    Changed(NoteChanged) = 1,
+}
+
 #[command_enum(Note)]
 pub enum NoteCommand {
     Create(CreateNote) = 0,
@@ -111,12 +111,12 @@ pub async fn dispatcher(
     let (com, _): (NoteCommand, _) = bincode::decode_from_slice(&com_data, BINCODE_CONFIG)?;
     match com {
         NoteCommand::Create(com) => {
-            let evt = Dispatcher::<0>::new().execute(com, &mut agg)?;
+            let evt = com.process(&mut agg)?;
             Ok((agg, NoteEvent::Created(evt)))
         }
         NoteCommand::Change(com) => {
             replay(agg_type, agg_id, &mut agg, loader).await?;
-            let evt = Dispatcher::<1>::new().execute(com, &mut agg)?;
+            let evt = com.process(&mut agg)?;
             Ok((agg, NoteEvent::Changed(evt)))
         }
     }
