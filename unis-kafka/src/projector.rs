@@ -1,16 +1,19 @@
 //! # Kafka 投影者
 
-pub mod app;
-pub(self) mod core;
+mod app;
+mod core;
 
 pub use app::App;
 pub use app::context;
-use unis::config::build_config;
+#[doc(hidden)]
+#[cfg(any(test, feature = "test-utils"))]
+pub use app::test_context;
 
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicBool;
 use thiserror::Error;
+use unis::config::build_config;
 
 static EXIT: AtomicBool = AtomicBool::new(false);
 static CLOSED: AtomicBool = AtomicBool::new(false);

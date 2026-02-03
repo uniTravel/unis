@@ -1,8 +1,5 @@
 use super::ProjectError;
-use crate::{
-    BINCODE_HEADER,
-    config::{load_bootstrap, load_hostname},
-};
+use crate::config::{load_bootstrap, load_hostname};
 use ahash::AHashMap;
 use rdkafka::{
     ClientConfig, Message, TopicPartitionList,
@@ -16,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::{debug, info};
-use unis::{Response, domain::Aggregate, errors::UniError};
+use unis::{UniResponse, domain::Aggregate, errors::UniError};
 use uuid::Uuid;
 
 pub(super) struct Projector {
@@ -112,7 +109,7 @@ impl Projector {
 
             match self.tc.poll(Duration::from_millis(100)) {
                 Some(Ok(msg)) => match process_message(&msg) {
-                    Ok((agg_id, payload, res)) if res == Response::Success => {
+                    Ok((agg_id, payload, res)) if res == UniResponse::Success => {
                         let agg_type = msg.topic().to_string();
                         let mut topic = String::with_capacity(agg_type.len() + 37);
                         topic.push_str(&agg_type);
@@ -205,7 +202,7 @@ fn process_batch(
     Ok(())
 }
 
-fn process_message(msg: &BorrowedMessage<'_>) -> Result<(Uuid, Vec<u8>, Response), UniError> {
+fn process_message(msg: &BorrowedMessage<'_>) -> Result<(Uuid, Vec<u8>, UniResponse), UniError> {
     let key = msg.key().ok_or("消息键不存在")?;
     let agg_id = Uuid::from_slice(key).map_err(|e| UniError::MsgError(e.to_string()))?;
     debug!("提取聚合Id：{agg_id}");
@@ -219,8 +216,8 @@ fn process_message(msg: &BorrowedMessage<'_>) -> Result<(Uuid, Vec<u8>, Response
         .ok_or("键为'response'的消息头不存在")?
         .value
         .ok_or("键'response'对应的值为空")?;
-    let (res, _): (Response, _) = bincode::decode_from_slice(&res_data, BINCODE_HEADER)?;
-    debug!("提取命令处理结果：{:?}", res);
+    let res = UniResponse::from_bytes(res_data);
+    debug!("提取命令处理结果：{res}");
 
     Ok((agg_id, payload, res))
 }

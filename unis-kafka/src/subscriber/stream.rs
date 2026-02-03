@@ -1,5 +1,4 @@
 use super::{SUBSCRIBER_CONFIG, TopicTask};
-use crate::BINCODE_HEADER;
 use rdkafka::{
     ClientConfig,
     message::{Header, OwnedHeaders},
@@ -8,7 +7,7 @@ use rdkafka::{
 use std::sync::{Arc, LazyLock};
 use tokio::sync::mpsc;
 use tracing::{debug, error, instrument};
-use unis::{Response, config::SubscribeConfig, domain, errors::UniError};
+use unis::{config::SubscribeConfig, domain, errors::UniError};
 use uuid::Uuid;
 
 static SHARED_TP: LazyLock<Arc<FutureProducer>> = LazyLock::new(|| {
@@ -58,8 +57,6 @@ impl domain::Stream for Writer {
             }
         }
 
-        let mut buf = [0u8; 4];
-        bincode::encode_into_slice(Response::Success, &mut buf, BINCODE_HEADER)?;
         let record = FutureRecord::to(agg_type)
             .payload(evt_data)
             .key(agg_id.as_bytes())
@@ -71,7 +68,7 @@ impl domain::Stream for Writer {
                     })
                     .insert(Header {
                         key: "response",
-                        value: Some(&buf),
+                        value: Some(&[0 as u8]),
                     }),
             );
 
@@ -96,11 +93,9 @@ impl domain::Stream for Writer {
         agg_type: &'static str,
         agg_id: Uuid,
         com_id: Uuid,
-        res: Response,
+        res: &[u8; 1],
         evt_data: &[u8],
     ) -> Result<(), UniError> {
-        let mut buf = [0u8; 4];
-        bincode::encode_into_slice(res, &mut buf, BINCODE_HEADER)?;
         let record = FutureRecord::to(agg_type)
             .payload(evt_data)
             .key(agg_id.as_bytes())
@@ -112,7 +107,7 @@ impl domain::Stream for Writer {
                     })
                     .insert(Header {
                         key: "response",
-                        value: Some(&buf),
+                        value: Some(res),
                     }),
             );
 

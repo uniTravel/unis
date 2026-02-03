@@ -1,4 +1,4 @@
-pub(crate) use domain::note::{self, CreateNote, NoteCommand};
+pub(crate) use domain::note::{CreateNote, NoteCommand};
 pub(crate) use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
@@ -15,7 +15,7 @@ use tracing::{Level, error};
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
 pub(crate) use unis::{
-    Response, config,
+    UniResponse, config,
     domain::{Aggregate, Request},
     test_utils::kube::{HelmRelease, KubeCluster},
 };
@@ -75,16 +75,16 @@ pub(crate) async fn external_setup() {
 }
 
 #[fixture]
-pub(crate) async fn ctx_subscriber() -> Arc<subscriber::app::App> {
-    subscriber::app::test_context().await
+pub(crate) async fn ctx_subscriber() -> Arc<subscriber::App> {
+    subscriber::test_context().await
 }
 
 #[fixture]
-pub(crate) async fn ctx_sender() -> Arc<sender::app::App> {
-    sender::app::test_context().await
+pub(crate) async fn ctx_sender() -> Arc<sender::App> {
+    sender::test_context().await
 }
 
 #[fixture]
-pub(crate) async fn ctx_projector() -> Arc<Mutex<projector::app::App>> {
-    projector::app::test_context().await
+pub(crate) async fn ctx_projector() -> Arc<Mutex<projector::App>> {
+    projector::test_context().await
 }

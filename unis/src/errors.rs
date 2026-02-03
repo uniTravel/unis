@@ -1,6 +1,6 @@
 //! # **unis** 错误定义
 
-use crate::Response;
+use crate::UniResponse;
 use thiserror::Error;
 
 /// **unis** 错误枚举
@@ -14,10 +14,7 @@ pub enum UniError {
     CheckError(String),
     /// 序列化错误
     #[error("序列化错误")]
-    EncodeError(#[from] bincode::error::EncodeError),
-    /// 反序列化错误
-    #[error("反序列化错误")]
-    DecodeError(#[from] bincode::error::DecodeError),
+    CodeError(#[from] rkyv::rancor::Error),
     /// 消息处理错误
     #[error("消息处理错误：{0}")]
     MsgError(String),
@@ -34,16 +31,15 @@ pub enum UniError {
 
 impl UniError {
     /// 转换成 Response 结构
-    pub fn response(&self) -> Response {
+    pub fn response(&self) -> UniResponse {
         match self {
-            UniError::CheckError(_) => Response::CheckError,
-            UniError::EncodeError(_) => Response::EncodeError,
-            UniError::DecodeError(_) => Response::DecodeError,
-            UniError::MsgError(_) => Response::MsgError,
-            UniError::WriteError(_) => Response::WriteError,
-            UniError::ReadError(_) => Response::ReadError,
-            UniError::SendError(_) => Response::SendError,
-            UniError::Duplicate => Response::Duplicate,
+            UniError::CheckError(_) => UniResponse::CheckError,
+            UniError::CodeError(_) => UniResponse::CodeError,
+            UniError::MsgError(_) => UniResponse::MsgError,
+            UniError::WriteError(_) => UniResponse::WriteError,
+            UniError::ReadError(_) => UniResponse::ReadError,
+            UniError::SendError(_) => UniResponse::SendError,
+            UniError::Duplicate => UniResponse::Duplicate,
         }
     }
 }

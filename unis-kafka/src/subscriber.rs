@@ -1,17 +1,18 @@
 //! # Kafka 订阅者
 
+mod app;
+mod core;
 mod pool;
+mod reader;
 mod stream;
 #[cfg(test)]
 mod tests;
 
-pub mod app;
-pub(self) mod core;
-pub(self) mod reader;
-
 pub use app::App;
 pub use app::context;
-pub use reader::load;
+#[doc(hidden)]
+#[cfg(any(test, feature = "test-utils"))]
+pub use app::test_context;
 
 use crate::config::SubscriberConfig;
 use std::sync::LazyLock;

@@ -47,7 +47,13 @@ async fn respond_to_stream(#[future(awt)] _init: (), #[future(awt)] context: Arc
     let agg_id = Uuid::new_v4();
     let com_id = Uuid::new_v4();
     let result = stream
-        .respond(agg_type, agg_id, com_id, Response::Duplicate, &[])
+        .respond(
+            agg_type,
+            agg_id,
+            com_id,
+            &UniResponse::Duplicate.to_bytes(),
+            &[],
+        )
         .await;
 
     assert!(result.is_ok());

@@ -12,7 +12,6 @@ pub mod sender;
 #[cfg(feature = "subscriber")]
 pub mod subscriber;
 
-use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -22,11 +21,6 @@ use tokio::{
     task::JoinSet,
 };
 use tracing::{error, info};
-
-#[allow(dead_code)]
-const BINCODE_HEADER: Configuration<LittleEndian, Fixint, Limit<4>> = bincode::config::standard()
-    .with_fixed_int_encoding()
-    .with_limit::<4>();
 
 /// 应用上下文结构
 pub struct Context {

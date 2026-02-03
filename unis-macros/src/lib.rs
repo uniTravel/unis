@@ -114,12 +114,12 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// 规范命令结构体定义
 ///
-/// 1. 添加 #[derive(Debug, ::validator::Validate, ::bincode::Encode, ::bincode::Decode)]。
+/// 1. 添加 #[derive(Debug, ::validator::Validate, ::rkyv::Archive, ::rkyv::Deserialize, ::rkyv::Serialize)]。
 #[proc_macro_attribute]
 pub fn command(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemStruct);
     let expanded = quote! {
-        #[derive(Debug, ::validator::Validate, ::bincode::Encode, ::bincode::Decode)]
+        #[derive(Debug, ::validator::Validate, ::rkyv::Archive, ::rkyv::Deserialize, ::rkyv::Serialize)]
         #input
     };
     TokenStream::from(expanded)
@@ -127,12 +127,12 @@ pub fn command(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// 规范事件结构体定义
 ///
-/// 1. 添加 #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]。
+/// 1. 添加 #[derive(Debug, ::rkyv::Archive, ::rkyv::Deserialize, ::rkyv::Serialize)]。
 #[proc_macro_attribute]
 pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemStruct);
     let expanded = quote! {
-        #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]
+        #[derive(Debug, ::rkyv::Archive, ::rkyv::Deserialize, ::rkyv::Serialize)]
         #input
     };
     TokenStream::from(expanded)
@@ -140,35 +140,29 @@ pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// 规范命令枚举定义
 ///
-/// 1. 添加 #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]。
+/// 1. 添加 #[derive(Debug, ::rkyv::Archive, ::rkyv::Deserialize, ::rkyv::Serialize)]。
 /// 2. 添加 #[repr(u8)]。
 ///
 /// # Panics
 ///
 /// 枚举变体需要添加判别值。
 #[proc_macro_attribute]
-pub fn command_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn command_enum(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemEnum);
-    let enum_name = &input.ident;
-    let agg_name = parse_macro_input!(attr as Ident);
 
     let expanded = quote! {
-        #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]
+        #[derive(Debug, ::rkyv::Archive, ::rkyv::Deserialize, ::rkyv::Serialize)]
         #[repr(u8)]
         #input
-
-        impl unis::domain::CommandEnum for #enum_name {
-            type A = #agg_name;
-        }
     };
     TokenStream::from(expanded)
 }
 
 /// 规范事件枚举定义
 ///
-/// 1. 添加 #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]。
+/// 1. 添加 #[derive(Debug, ::rkyv::Archive, ::rkyv::Deserialize, ::rkyv::Serialize)]。
 /// 2. 添加 #[repr(u8)]。
-/// 3. 生成重播事件所需内容。
+/// 3. 添加重播事件函数。
 ///
 /// # Panics
 ///
@@ -194,7 +188,7 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     });
     let expanded = quote! {
-        #[derive(Debug, ::bincode::Encode, ::bincode::Decode)]
+        #[derive(Debug, ::rkyv::Archive, ::rkyv::Deserialize, ::rkyv::Serialize)]
         #[repr(u8)]
         #input
 
@@ -206,12 +200,11 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
             agg_type: &'static str,
             agg_id: ::uuid::Uuid,
             agg: &mut #agg_name,
-            loader: impl ::unis::domain::Load,
-        ) -> Result<(), ::unis::errors::UniError> {
+            loader: impl ::unis::domain::Load<#enum_name>,
+        ) -> Result<(), ::unis::errors::UniError>
+        {
             if agg.revision == u64::MAX {
-                let ds = loader.load(agg_type, agg_id).await?;
-                for evt_data in ds {
-                    let (evt, _): (#enum_name, _) = ::bincode::decode_from_slice(&evt_data, BINCODE_CONFIG)?;
+                for evt in loader.load(agg_type, agg_id).await?.iter() {
                     match evt {
                         #(#match_arms,)*
                     }

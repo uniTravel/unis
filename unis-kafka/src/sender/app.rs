@@ -1,10 +1,13 @@
-//! Kafka 发送者上下文
-
 use crate::{Context, sender::core::Sender};
+use rkyv::{
+    Archive, Deserialize,
+    de::Pool,
+    rancor::{Error, Strategy},
+};
 use std::{ops::Deref, sync::Arc};
 use tokio::sync::OnceCell;
 use tracing::error;
-use unis::domain::{Aggregate, CommandEnum};
+use unis::domain::CommandEnum;
 
 static CONTEXT: OnceCell<Arc<App>> = OnceCell::const_new();
 /// 发送者上下文
@@ -43,12 +46,13 @@ impl App {
     }
 
     /// 设置特定聚合类型的发送者
-    pub async fn setup<A, C>(self: &Arc<Self>) -> Sender<A, C>
+    pub async fn setup<C>(self: &Arc<Self>) -> Sender<C::A, C, C::E>
     where
-        A: Aggregate + Sync,
-        C: CommandEnum<A = A> + Sync + 'static,
+        C: CommandEnum + Sync,
+        <C as Archive>::Archived: Deserialize<C, Strategy<Pool, Error>>,
+        <C::E as Archive>::Archived: rkyv::Deserialize<C::E, Strategy<Pool, Error>>,
     {
-        match Sender::<A, C>::new(Arc::clone(self)).await {
+        match Sender::<C::A, C, C::E>::new(Arc::clone(self)).await {
             Ok(sender) => sender,
             Err(e) => {
                 error!(e);

@@ -11,5 +11,5 @@ repository.workspace = true
 unis.workspace = true
 
 uuid.workspace = true
-bincode.workspace = true
+rkyv.workspace = true
 validator.workspace = true

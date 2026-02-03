@@ -27,7 +27,7 @@ use tracing::{Level, info, warn};
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
 use unis::{
-    Response,
+    UniResponse,
     config::build_config,
     domain::{Aggregate, Stream},
     test_utils::kube::{HelmRelease, KubeCluster},

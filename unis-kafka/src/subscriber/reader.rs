@@ -1,18 +1,24 @@
-//! Kafka 数据读取
-
 use super::{SUBSCRIBER_CONFIG, pool::ConsumerPool};
 use ahash::{AHashMap, AHashSet};
 use rdkafka::{Message, Offset, TopicPartitionList, consumer::Consumer, message::Headers};
+use rkyv::{
+    Archive, Deserialize,
+    de::Pool,
+    rancor::{Error, Strategy},
+};
 use std::{sync::LazyLock, time::SystemTime};
 use tracing::{debug, error, instrument};
-use unis::errors::UniError;
+use unis::{domain::EventEnum, errors::UniError};
 use uuid::Uuid;
 
 static POOL: LazyLock<ConsumerPool> = LazyLock::new(|| ConsumerPool::new());
 
-/// 加载聚合事件流
 #[instrument(name = "load_aggregate", level = "debug")]
-pub async fn load(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, UniError> {
+pub async fn load<E>(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<E>, UniError>
+where
+    E: EventEnum,
+    <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
+{
     let mut topic = String::with_capacity(agg_type.len() + 37);
     topic.push_str(agg_type);
     topic.push_str("-");
@@ -41,7 +47,7 @@ pub async fn load(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<Vec<u8>>, 
         match consumer.poll(SUBSCRIBER_CONFIG.timeout) {
             Some(Ok(msg)) => {
                 if let Some(payload) = msg.payload() {
-                    msgs.push(payload.to_vec());
+                    msgs.push(E::from_bytes(payload)?);
                 }
                 if msg.offset() + 1 == high {
                     debug!("读到 {} 条事件流数据", msgs.len());

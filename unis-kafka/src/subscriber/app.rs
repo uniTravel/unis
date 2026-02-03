@@ -1,11 +1,14 @@
-//! Kafka 订阅者上下文
-
 use super::{SUBSCRIBER_CONFIG, TopicTask};
 use crate::{Context, config::load_bootstrap, subscriber::core::Subscriber};
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
     client::DefaultClientContext,
+};
+use rkyv::{
+    Archive, Deserialize,
+    de::Pool,
+    rancor::{Error, Strategy},
 };
 use std::{
     ops::Deref,
@@ -17,10 +20,7 @@ use tokio::{
     time::{Duration, Instant},
 };
 use tracing::{debug, debug_span, error, info};
-use unis::{
-    config::build_config,
-    domain::{Aggregate, Dispatch, EventEnum, Load},
-};
+use unis::{config::build_config, domain::CommandEnum};
 
 static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
     let config = build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
@@ -87,14 +87,12 @@ impl App {
     }
 
     /// 设置特定聚合类型的订阅者
-    pub async fn setup<A, D, E, L>(self: &Arc<Self>, dispatcher: D, loader: L)
+    pub async fn setup<C>(self: &Arc<Self>)
     where
-        A: Aggregate + Clone,
-        D: Dispatch<A, E, L>,
-        E: EventEnum<A = A>,
-        L: Load,
+        C: CommandEnum,
+        <C as Archive>::Archived: Sync + Deserialize<C, Strategy<Pool, Error>>,
     {
-        if let Err(e) = Subscriber::launch(Arc::clone(self), dispatcher, loader).await {
+        if let Err(e) = Subscriber::<C::A, C, C::E>::launch(Arc::clone(self)).await {
             error!(e);
             self.shutdown().await;
             self.all_done().await;

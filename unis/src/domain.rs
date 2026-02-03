@@ -1,12 +1,24 @@
 //! # **unis** 特征
 
-use crate::{Response, errors::UniError};
+use crate::{UniResponse, errors::UniError};
 use ahash::{AHashMap, AHashSet};
+use rkyv::{
+    Archive, Deserialize, Serialize,
+    api::high::to_bytes_with_alloc,
+    de::Pool,
+    rancor::{Error, Strategy},
+    ser::{
+        Serializer,
+        allocator::{Arena, ArenaHandle},
+        sharing::Share,
+    },
+    util::AlignedVec,
+};
 use std::future::Future;
 use uuid::Uuid;
 
 /// 聚合特征
-pub trait Aggregate: Send + 'static {
+pub trait Aggregate: Send + Clone + 'static {
     /// 构造函数
     fn new(id: Uuid) -> Self;
     /// 递增 revision
@@ -22,7 +34,7 @@ pub trait Aggregate: Send + 'static {
 }
 
 /// 事件特征
-pub trait Event {
+pub trait Event: Archive + 'static {
     /// 聚合类型
     type A: Aggregate;
 
@@ -31,7 +43,7 @@ pub trait Event {
 }
 
 /// 命令特征
-pub trait Command {
+pub trait Command: Archive + Sized + 'static {
     /// 聚合类型
     type A: Aggregate;
     /// 事件类型
@@ -40,66 +52,107 @@ pub trait Command {
     /// 检查命令是否合法
     fn check(&self, agg: &Self::A) -> Result<(), UniError>;
     /// 执行命令，生成相应事件
-    fn execute(&self, agg: &Self::A) -> Self::E;
+    fn apply(self, agg: &Self::A) -> Self::E;
     /// 处理命令
     #[inline]
-    fn process(&self, na: &mut Self::A) -> Result<Self::E, UniError> {
+    fn process(self, na: &mut Self::A) -> Result<Self::E, UniError> {
         self.check(&na)?;
-        let evt = self.execute(&na);
+        let evt = self.apply(&na);
         evt.apply(na);
         Ok(evt)
     }
 }
 
-/// 事件枚举
-pub trait EventEnum: bincode::Encode + Send + 'static {
+/// 事件枚举特征
+pub trait EventEnum:
+    Send
+    + Archive
+    + Sized
+    + for<'m> Serialize<Strategy<Serializer<AlignedVec, ArenaHandle<'m>, Share>, Error>>
+    + 'static
+where
+    <Self as Archive>::Archived: Deserialize<Self, Strategy<Pool, Error>>,
+{
     /// 聚合类型
     type A: Aggregate;
+
+    /// 序列化
+    #[inline(always)]
+    fn to_bytes(&self, arena: &mut Arena) -> Result<AlignedVec, UniError> {
+        Ok(to_bytes_with_alloc(self, arena.acquire())?)
+    }
+
+    /// 反序列化
+    #[inline(always)]
+    fn from_bytes(bytes: &[u8]) -> Result<Self, UniError> {
+        let mut aligned = AlignedVec::<4096>::new();
+        aligned.extend_from_slice(bytes);
+        Ok(unsafe { rkyv::from_bytes_unchecked::<Self, Error>(&aligned) }?)
+    }
 }
 
-/// 命令枚举
-pub trait CommandEnum: bincode::Encode + Send {
+/// 命令枚举特征
+pub trait CommandEnum:
+    Send
+    + Archive
+    + Sized
+    + Sync
+    + for<'m> Serialize<Strategy<Serializer<AlignedVec, ArenaHandle<'m>, Share>, Error>>
+    + 'static
+where
+    <Self as Archive>::Archived: Deserialize<Self, Strategy<Pool, Error>>,
+    <<Self as CommandEnum>::E as Archive>::Archived:
+        Deserialize<<Self as CommandEnum>::E, Strategy<Pool, Error>>,
+{
     /// 聚合类型
     type A: Aggregate;
-}
+    /// 事件枚举类型
+    type E: EventEnum<A = Self::A>;
 
-/// 恢复命令操作记录特征
-pub trait Restore: Send + Sync + 'static {
-    /// 返回类型
-    type Fut: Future<Output = Result<AHashMap<Uuid, AHashSet<Uuid>>, UniError>> + Send;
+    /// 执行命令枚举
+    fn apply(
+        self,
+        agg_type: &'static str,
+        agg_id: Uuid,
+        agg: Self::A,
+        loader: impl Load<Self::E>,
+    ) -> impl Future<Output = Result<(Self::A, Self::E), UniError>> + Send;
 
-    /// 从存储恢复命令操作记录
-    fn restore(&self, agg_type: &'static str, latest: i64) -> Self::Fut;
+    /// 序列化
+    #[inline(always)]
+    fn to_bytes(&self, arena: &mut Arena) -> Result<AlignedVec, UniError> {
+        Ok(to_bytes_with_alloc(self, arena.acquire())?)
+    }
+
+    /// 反序列化
+    #[inline(always)]
+    fn from_bytes(bytes: &[u8]) -> Result<Self, UniError> {
+        let mut aligned = AlignedVec::<4096>::new();
+        aligned.extend_from_slice(bytes);
+        Ok(unsafe { rkyv::from_bytes_unchecked::<Self, Error>(&aligned) }?)
+    }
 }
 
 /// 加载事件流特征
-pub trait Load: Send + Sync + Copy + 'static {
+pub trait Load<E>: Send + Copy + 'static
+where
+    E: EventEnum,
+    <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
+{
     /// 返回类型
-    type Fut: Future<Output = Result<Vec<Vec<u8>>, UniError>> + Send;
+    type Fut: Future<Output = Result<Vec<E>, UniError>> + Send;
 
     /// 从存储加载事件流
     fn load(&self, agg_type: &'static str, agg_id: Uuid) -> Self::Fut;
 }
 
-/// 分发特征
-pub trait Dispatch<A, E, L>: Send + Sync + Copy + 'static
-where
-    A: Aggregate,
-    E: EventEnum<A = A>,
-    L: Load,
-{
+/// 恢复命令操作记录特征
+pub trait Restore: Send + 'static {
     /// 返回类型
-    type Fut: Future<Output = Result<(A, E), UniError>> + Send;
+    type Fut: Future<Output = Result<AHashMap<Uuid, AHashSet<Uuid>>, UniError>> + Send;
 
-    /// 分发回调函数
-    fn dispatch(
-        &self,
-        agg_type: &'static str,
-        agg_id: Uuid,
-        com_data: Vec<u8>,
-        agg: A,
-        loader: L,
-    ) -> Self::Fut;
+    /// 从存储恢复命令操作记录
+    fn restore(&self, agg_type: &'static str, latest: i64) -> Self::Fut;
 }
 
 /// 流写入特征
@@ -119,19 +172,22 @@ pub trait Stream: Send + Sync + 'static {
         agg_type: &'static str,
         agg_id: Uuid,
         com_id: Uuid,
-        res: Response,
+        res: &[u8; 1],
         evt_data: &[u8],
     ) -> impl Future<Output = Result<(), UniError>> + Send;
 }
 
 /// 发送者特征
-pub trait Request<A, C>: Send + Sync + 'static
+pub trait Request<A, C, E>: Send + 'static
 where
     A: Aggregate,
-    C: CommandEnum<A = A>,
+    C: CommandEnum<A = A, E = E>,
+    <C as Archive>::Archived: Deserialize<C, Strategy<Pool, Error>>,
+    E: EventEnum<A = A>,
+    <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
     /// 发送命令
-    fn send(&self, agg_id: Uuid, com_id: Uuid, com: C) -> impl Future<Output = Response> + Send;
+    fn send(&self, agg_id: Uuid, com_id: Uuid, com: C) -> impl Future<Output = UniResponse>;
 }
 
 /// 配置特征

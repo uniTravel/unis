@@ -1,6 +1,5 @@
 use unis::{
-    BINCODE_CONFIG,
-    domain::{Command, Event, Load},
+    domain::{Command, CommandEnum, Event, Load},
     errors::UniError,
     macros::*,
 };
@@ -29,10 +28,10 @@ impl Command for CreateNote {
         Ok(())
     }
 
-    fn execute(&self, _agg: &Self::A) -> Self::E {
+    fn apply(self, _agg: &Self::A) -> Self::E {
         Self::E {
-            title: self.title.clone(),
-            content: self.content.clone(),
+            title: self.title,
+            content: self.content,
             grade: 1,
         }
     }
@@ -69,9 +68,9 @@ impl Command for ChangeNote {
         Ok(())
     }
 
-    fn execute(&self, _agg: &Self::A) -> Self::E {
+    fn apply(self, _agg: &Self::A) -> Self::E {
         Self::E {
-            content: self.content.clone(),
+            content: self.content,
         }
     }
 }
@@ -95,29 +94,33 @@ pub enum NoteEvent {
     Changed(NoteChanged) = 1,
 }
 
-#[command_enum(Note)]
+#[command_enum]
 pub enum NoteCommand {
     Create(CreateNote) = 0,
     Change(ChangeNote) = 1,
 }
 
-pub async fn dispatcher(
-    agg_type: &'static str,
-    agg_id: Uuid,
-    com_data: Vec<u8>,
-    mut agg: Note,
-    loader: impl Load,
-) -> Result<(Note, NoteEvent), UniError> {
-    let (com, _): (NoteCommand, _) = bincode::decode_from_slice(&com_data, BINCODE_CONFIG)?;
-    match com {
-        NoteCommand::Create(com) => {
-            let evt = com.process(&mut agg)?;
-            Ok((agg, NoteEvent::Created(evt)))
-        }
-        NoteCommand::Change(com) => {
-            replay(agg_type, agg_id, &mut agg, loader).await?;
-            let evt = com.process(&mut agg)?;
-            Ok((agg, NoteEvent::Changed(evt)))
+impl CommandEnum for NoteCommand {
+    type A = Note;
+    type E = NoteEvent;
+
+    async fn apply(
+        self,
+        agg_type: &'static str,
+        agg_id: Uuid,
+        mut agg: Self::A,
+        loader: impl Load<Self::E>,
+    ) -> Result<(Note, NoteEvent), UniError> {
+        match self {
+            NoteCommand::Create(com) => {
+                let evt = com.process(&mut agg)?;
+                Ok((agg, NoteEvent::Created(evt)))
+            }
+            NoteCommand::Change(com) => {
+                replay(agg_type, agg_id, &mut agg, loader).await?;
+                let evt = com.process(&mut agg)?;
+                Ok((agg, NoteEvent::Changed(evt)))
+            }
         }
     }
 }
