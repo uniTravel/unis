@@ -16,10 +16,8 @@ unis-macros.workspace = true
 
 uuid.workspace = true
 ahash.workspace = true
-crossbeam.workspace = true
 serde.workspace = true
 rkyv.workspace = true
-bytes.workspace = true
 tokio.workspace = true
 axum.workspace = true
 

@@ -66,6 +66,7 @@ where
     },
 }
 
+/// 发送者结构
 pub struct Sender<A, C, E>
 where
     A: Aggregate,
@@ -122,6 +123,7 @@ where
     E: EventEnum<A = A>,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
+    /// 构造发送者
     #[instrument(name = "build_sender", skip_all, fields(agg_type))]
     pub async fn new(context: Arc<App>) -> Result<Self, String> {
         let agg_type = A::topic();

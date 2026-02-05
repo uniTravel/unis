@@ -43,7 +43,14 @@ pub trait Event: Archive + 'static {
 }
 
 /// 命令特征
-pub trait Command: Archive + Sized + 'static {
+pub trait Command:
+    Archive
+    + Sized
+    + for<'m> Serialize<Strategy<Serializer<AlignedVec, ArenaHandle<'m>, Share>, Error>>
+    + 'static
+where
+    <Self as Archive>::Archived: Deserialize<Self, Strategy<Pool, Error>>,
+{
     /// 聚合类型
     type A: Aggregate;
     /// 事件类型
@@ -53,6 +60,7 @@ pub trait Command: Archive + Sized + 'static {
     fn check(&self, agg: &Self::A) -> Result<(), UniError>;
     /// 执行命令，生成相应事件
     fn apply(self, agg: &Self::A) -> Self::E;
+
     /// 处理命令
     #[inline]
     fn process(self, na: &mut Self::A) -> Result<Self::E, UniError> {
@@ -60,6 +68,20 @@ pub trait Command: Archive + Sized + 'static {
         let evt = self.apply(&na);
         evt.apply(na);
         Ok(evt)
+    }
+
+    /// 序列化
+    #[inline(always)]
+    fn to_bytes(&self, arena: &mut Arena) -> Result<AlignedVec, UniError> {
+        Ok(to_bytes_with_alloc(self, arena.acquire())?)
+    }
+
+    /// 反序列化
+    #[inline(always)]
+    fn from_bytes(bytes: &[u8]) -> Result<Self, UniError> {
+        let mut aligned = AlignedVec::<4096>::new();
+        aligned.extend_from_slice(bytes);
+        Ok(unsafe { rkyv::from_bytes_unchecked::<Self, Error>(&aligned) }?)
     }
 }
 

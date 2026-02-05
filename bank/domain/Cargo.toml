@@ -1,0 +1,16 @@
+[package]
+name = "domain"
+publish = false
+
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+unis.workspace = true
+
+uuid.workspace = true
+serde.workspace = true
+rkyv.workspace = true
+validator.workspace = true

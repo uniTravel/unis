@@ -1,0 +1,20 @@
+[package]
+name = "kafka-sender"
+publish = false
+
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+unis.workspace = true
+unis-kafka = { workspace = true, features = ["sender"] }
+domain = { path = "../domain" }
+
+tokio.workspace = true
+axum.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true

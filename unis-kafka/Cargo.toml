@@ -34,7 +34,7 @@ thiserror.workspace = true
 config.workspace = true
 
 [dev-dependencies]
-domain = { path = "../domain" }
+note = { path = "../note" }
 unis = { workspace = true, features = ["test-utils"] }
 unis-kafka = { workspace = true, features = [
     "subscriber",

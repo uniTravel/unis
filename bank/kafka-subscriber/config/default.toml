@@ -1,0 +1,15 @@
+bootstrap = "localhost:30001,localhost:30002,localhost:30003"
+
+[subscriber.Account]
+sems = 50
+
+[subscriber.Transaction]
+hotspot = true
+sems = 300
+
+[cc.Note]
+"auto.offset.reset" = "earliest"
+"auto.commit.interval.ms" = "1000"
+
+[tp]
+"linger.ms" = "1"

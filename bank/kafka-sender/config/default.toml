@@ -1,0 +1,16 @@
+hostname = ""
+bootstrap = "localhost:30001,localhost:30002,localhost:30003"
+
+[sender.Account]
+sems = 50
+
+[sender.Transaction]
+hotspot = true
+sems = 300
+
+[tc.Note]
+"auto.offset.reset" = "earliest"
+"auto.commit.interval.ms" = "1000"
+
+[cp]
+"linger.ms" = "1"

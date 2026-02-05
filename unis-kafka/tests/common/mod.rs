@@ -1,4 +1,4 @@
-pub(crate) use domain::note::{CreateNote, NoteCommand};
+pub(crate) use note::note::{CreateNote, NoteCommand};
 pub(crate) use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},

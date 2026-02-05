@@ -1,45 +1,48 @@
-// use crate::domain::Command;
-// use axum::{body::Body, extract::FromRequest, http::StatusCode};
-// use bytes::Bytes;
+use std::fmt::Debug;
 
-// pub struct Request<T>(pub T);
+use crate::domain::Command;
+use axum::{
+    body::Bytes,
+    extract::FromRequest,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use rkyv::{
+    Archive, Deserialize,
+    de::Pool,
+    rancor::{Error, Strategy},
+};
+use uuid::Uuid;
 
-// impl<T, S> FromRequest<S> for Request<T>
-// where
-//     T: Command,
-//     S: Send + Sync,
-// {
-//     type Rejection = (StatusCode, String);
+/// 命令请求的路径参数
+#[derive(serde::Deserialize)]
+pub struct UniKey {
+    /// 聚合 Id
+    pub agg_id: Uuid,
+    /// 聚合命令 Id
+    pub com_id: Uuid,
+}
 
-//     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
-//         let bytes = Bytes::from_request(req, state)
-//             .await
-//             .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+/// 解析命令请求体
+pub struct UniCommand<T>(pub T);
 
+impl<T, S> FromRequest<S> for UniCommand<T>
+where
+    T: Command + Debug,
+    <T as Archive>::Archived: Deserialize<T, Strategy<Pool, Error>>,
+    Bytes: FromRequest<S>,
+    S: Send + Sync,
+{
+    type Rejection = Response;
 
-//         // Ok(Request(value))
-//         todo!()
-//     }
-// }
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        let bytes = Bytes::from_request(req, state)
+            .await
+            .map_err(|e| e.into_response())?;
 
-// // where
-// //     T: Command + bincode::Decode,
-// //     S: Send + Sync,
-// // {
-// //     type Rejection = (StatusCode, String);
+        let value = T::from_bytes(&bytes)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?;
 
-// //     async fn from_request(
-// //         req: axum::http::Request<Body>,
-// //         state: &S,
-// //     ) -> Result<Self, Self::Rejection> {
-// //         let bytes = Bytes::from_request(req, state)
-// //             .await
-// //             .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-
-// //         let value: T = bincode::decode_from_slice(&bytes, BINCODE_CONFIG)
-// //             .map(|(value, _)| value)
-// //             .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-
-// //         todo!()
-// //     }
-// // }
+        Ok(UniCommand(value))
+    }
+}

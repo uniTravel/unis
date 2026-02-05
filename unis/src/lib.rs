@@ -19,6 +19,7 @@ pub mod macros {
     pub use unis_macros::*;
 }
 
+pub use request::{UniCommand, UniKey};
 pub use response::UniResponse;
 
 use crate::domain::CommandEnum;

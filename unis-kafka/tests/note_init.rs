@@ -1,7 +1,7 @@
 mod common;
 
 use crate::common::*;
-use domain::note::Note;
+use note::note::Note;
 use std::sync::Mutex;
 use unis_kafka::projector;
 

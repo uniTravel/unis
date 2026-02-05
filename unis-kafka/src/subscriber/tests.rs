@@ -8,7 +8,7 @@ use super::{
     stream::Writer,
 };
 use crate::config;
-use domain::note;
+use note::note;
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},

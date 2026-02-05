@@ -1,0 +1,18 @@
+[package]
+name = "kafka-projector"
+publish = false
+
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+unis-kafka = { workspace = true, features = ["projector"] }
+domain = { path = "../domain" }
+
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true

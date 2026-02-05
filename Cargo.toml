@@ -1,6 +1,15 @@
 [workspace]
 resolver = "3"
-members = ["unis", "unis-macros", "unis-kafka", "domain"]
+members = [
+    "unis",
+    "unis-macros",
+    "unis-kafka",
+    "note",
+    "bank/domain",
+    "bank/kafka-projector",
+    "bank/kafka-subscriber",
+    "bank/kafka-sender",
+]
 default-members = ["unis", "unis-macros", "unis-kafka"]
 
 [workspace.package]
