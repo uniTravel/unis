@@ -3,10 +3,11 @@
 //!
 
 use crate::{
-    Com, EMPTY_BYTES, UniResponse,
+    Com, EMPTY_BYTES,
     config::SubscribeConfig,
     domain::{Aggregate, CommandEnum, EventEnum, Load, Restore, Stream},
     errors::UniError,
+    response::UniResponse,
 };
 use ahash::{AHashMap, AHashSet};
 use rkyv::{

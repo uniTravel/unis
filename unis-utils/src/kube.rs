@@ -1,9 +1,8 @@
 //! ## Kubernetes 集群部署工具
 //!
 //!
-#![cfg(feature = "test-utils")]
 
-use crate::test_utils::command::CommandBuilder;
+use crate::command::CommandBuilder;
 use std::{
     fs::{OpenOptions, TryLockError, create_dir_all},
     io::Write,

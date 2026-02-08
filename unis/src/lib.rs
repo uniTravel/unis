@@ -11,15 +11,13 @@ pub mod aggregator;
 pub mod config;
 pub mod domain;
 pub mod errors;
-#[cfg(feature = "test-utils")]
-pub mod test_utils;
 
 /// # **unis** 宏
 pub mod macros {
     pub use unis_macros::*;
 }
 
-pub use request::{UniCommand, UniKey};
+pub use request::{JsonFormat, RkyvFormat, UniCommand, UniKey};
 pub use response::UniResponse;
 
 use crate::domain::CommandEnum;

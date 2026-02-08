@@ -67,20 +67,20 @@ where
 }
 
 /// 发送者结构
-pub struct Sender<A, C, E>
+pub struct Sender<C>
 where
-    A: Aggregate,
-    C: CommandEnum<A = A, E = E>,
+    C::A: Aggregate,
+    C: CommandEnum,
     <C as Archive>::Archived: Deserialize<C, Strategy<Pool, Error>>,
-    E: EventEnum<A = A>,
-    <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
+    C::E: EventEnum<A = C::A>,
+    <C::E as Archive>::Archived: Deserialize<C::E, Strategy<Pool, Error>>,
 {
     agg_type: &'static str,
-    tx: mpsc::UnboundedSender<Todo<A, C, E>>,
+    tx: mpsc::UnboundedSender<Todo<C::A, C, C::E>>,
     _marker: PhantomData<C>,
 }
 
-impl<A, C, E> Request<A, C, E> for Sender<A, C, E>
+impl<A, C, E> Request<A, C, E> for Sender<C>
 where
     A: Aggregate,
     C: CommandEnum<A = A, E = E>,
@@ -115,7 +115,7 @@ where
     }
 }
 
-impl<A, C, E> Sender<A, C, E>
+impl<A, C, E> Sender<C>
 where
     A: Aggregate,
     C: CommandEnum<A = A, E = E> + Sync,

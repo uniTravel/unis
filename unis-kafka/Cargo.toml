@@ -1,8 +1,8 @@
 [package]
 name = "unis-kafka"
 description = "unis框架的Kafka实现。"
+version = "0.1.2"
 
-version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -23,7 +23,6 @@ uuid.workspace = true
 ahash.workspace = true
 crossbeam.workspace = true
 rkyv.workspace = true
-bytes.workspace = true
 tokio.workspace = true
 
 tracing.workspace = true
@@ -35,7 +34,8 @@ config.workspace = true
 
 [dev-dependencies]
 note = { path = "../note" }
-unis = { workspace = true, features = ["test-utils"] }
+unis.workspace = true
+unis-utils.workspace = true
 unis-kafka = { workspace = true, features = [
     "subscriber",
     "sender",

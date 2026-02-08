@@ -46,13 +46,13 @@ impl App {
     }
 
     /// 设置特定聚合类型的发送者
-    pub async fn setup<C>(self: &Arc<Self>) -> Sender<C::A, C, C::E>
+    pub async fn setup<C>(self: &Arc<Self>) -> Sender<C>
     where
         C: CommandEnum + Sync,
         <C as Archive>::Archived: Deserialize<C, Strategy<Pool, Error>>,
         <C::E as Archive>::Archived: rkyv::Deserialize<C::E, Strategy<Pool, Error>>,
     {
-        match Sender::<C::A, C, C::E>::new(Arc::clone(self)).await {
+        match Sender::new(Arc::clone(self)).await {
             Ok(sender) => sender,
             Err(e) => {
                 error!(e);

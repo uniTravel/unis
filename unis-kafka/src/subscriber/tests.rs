@@ -30,8 +30,8 @@ use unis::{
     UniResponse,
     config::build_config,
     domain::{Aggregate, Stream},
-    test_utils::kube::{HelmRelease, KubeCluster},
 };
+use unis_utils::kube::{HelmRelease, KubeCluster};
 use uuid::Uuid;
 
 static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {

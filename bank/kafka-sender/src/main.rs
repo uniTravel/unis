@@ -1,18 +1,12 @@
-mod v1;
-
-mod account;
-mod transaction;
-
-use std::sync::Arc;
+mod handlers;
+mod routes;
 
 use axum::Router;
-use domain::{
-    account::{Account, AccountCommand, AccountEvent},
-    transaction::{Transaction, TransactionCommand, TransactionEvent},
-};
+use domain::{account::AccountCommand, transaction::TransactionCommand};
+use std::sync::Arc;
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
-use unis_kafka::sender::{self, Sender};
+use unis_kafka::sender;
 
 #[tokio::main]
 async fn main() {
@@ -23,18 +17,14 @@ async fn main() {
         .pretty()
         .init();
 
-    let state = Arc::new(AppState {
-        account: Arc::new(sender::context().await.setup::<AccountCommand>().await),
-        transaction: Arc::new(sender::context().await.setup::<TransactionCommand>().await),
-    });
-
-    let app = Router::new().nest("/v1", v1::routes()).with_state(state);
+    let app = Router::new()
+        .merge(routes::account_routes().with_state(Arc::new(
+            sender::context().await.setup::<AccountCommand>().await,
+        )))
+        .merge(routes::transaction_routes().with_state(Arc::new(
+            sender::context().await.setup::<TransactionCommand>().await,
+        )));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     let _ = axum::serve(listener, app).await;
-}
-
-struct AppState {
-    account: Arc<Sender<Account, AccountCommand, AccountEvent>>,
-    transaction: Arc<Sender<Transaction, TransactionCommand, TransactionEvent>>,
 }

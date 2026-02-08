@@ -1,6 +1,6 @@
 //! # **unis** 错误定义
 
-use crate::UniResponse;
+use crate::response::UniResponse;
 use thiserror::Error;
 
 /// **unis** 错误枚举

@@ -1,17 +1,20 @@
-use std::fmt::Debug;
-
 use crate::domain::Command;
 use axum::{
     body::Bytes,
-    extract::FromRequest,
+    extract::{FromRequest, Json},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use rkyv::{
     Archive, Deserialize,
+    bytecheck::CheckBytes,
     de::Pool,
     rancor::{Error, Strategy},
+    util::AlignedVec,
+    validation::{Validator, archive::ArchiveValidator, shared::SharedValidator},
 };
+use serde::de::DeserializeOwned;
+use std::marker::PhantomData;
 use uuid::Uuid;
 
 /// 命令请求的路径参数
@@ -23,13 +26,20 @@ pub struct UniKey {
     pub com_id: Uuid,
 }
 
-/// 解析命令请求体
-pub struct UniCommand<T>(pub T);
+/// Json 格式
+pub struct JsonFormat;
+/// Rkyv 格式
+pub struct RkyvFormat;
 
-impl<T, S> FromRequest<S> for UniCommand<T>
+/// 解析命令请求体
+pub struct UniCommand<T, F>(pub T, pub PhantomData<F>);
+
+impl<T, S> FromRequest<S> for UniCommand<T, RkyvFormat>
 where
-    T: Command + Debug,
+    T: Command,
     <T as Archive>::Archived: Deserialize<T, Strategy<Pool, Error>>,
+    <T as Archive>::Archived:
+        for<'m> CheckBytes<Strategy<Validator<ArchiveValidator<'m>, SharedValidator>, Error>>,
     Bytes: FromRequest<S>,
     S: Send + Sync,
 {
@@ -40,9 +50,30 @@ where
             .await
             .map_err(|e| e.into_response())?;
 
-        let value = T::from_bytes(&bytes)
+        let mut aligned = AlignedVec::<4096>::new();
+        aligned.extend_from_slice(&bytes);
+        let value = rkyv::from_bytes::<T, Error>(&aligned)
             .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?;
 
-        Ok(UniCommand(value))
+        Ok(UniCommand(value, PhantomData))
+    }
+}
+
+impl<T, S> FromRequest<S> for UniCommand<T, JsonFormat>
+where
+    T: Command + DeserializeOwned,
+    Bytes: FromRequest<S>,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        let bytes = Bytes::from_request(req, state)
+            .await
+            .map_err(|e| e.into_response())?;
+
+        let Json(value) = Json::<T>::from_bytes(&bytes).map_err(|e| e.into_response())?;
+
+        Ok(UniCommand(value, PhantomData))
     }
 }

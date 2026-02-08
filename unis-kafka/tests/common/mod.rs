@@ -17,9 +17,10 @@ use tracing_subscriber::fmt;
 pub(crate) use unis::{
     UniResponse, config,
     domain::{Aggregate, Request},
-    test_utils::kube::{HelmRelease, KubeCluster},
 };
 use unis_kafka::projector;
+use unis_utils::kube::{HelmRelease, KubeCluster};
+
 pub(crate) use unis_kafka::{sender, subscriber};
 pub(crate) use uuid::Uuid;
 
