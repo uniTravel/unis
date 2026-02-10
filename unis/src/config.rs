@@ -25,11 +25,11 @@ where
 }
 
 /// 构建配置
-pub fn build_config(crate_dir: PathBuf) -> Config {
+pub fn build_config() -> Config {
     let config_root = std::env::var("UNI_CONFIG_ROOT")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| crate_dir.join("config"));
-    let env = std::env::var("UNI_ENV").unwrap_or_else(|_| "dev".to_owned());
+        .unwrap_or(PathBuf::from("./config"));
+    let env = std::env::var("UNI_ENV").unwrap_or("dev".to_owned());
     match Config::builder()
         .add_source(File::from(config_root.join("default")).required(false))
         .add_source(File::from(config_root.join(env)).required(false))
@@ -48,7 +48,7 @@ pub fn build_config(crate_dir: PathBuf) -> Config {
     }
 }
 
-/// 加载命名配置
+/// 加载配置到命名配置结构
 pub fn load_named_config<T>(config: &Config, section: &str) -> NamedConfig<T>
 where
     T: DeserializeOwned + Validate + Clone + Default,
@@ -69,6 +69,30 @@ where
     }
 
     NamedConfig { configs }
+}
+
+/// 加载命名配置
+pub fn load_named_setting(
+    config: &config::Config,
+    section: &str,
+) -> HashMap<String, HashMap<String, String>> {
+    let mut result = HashMap::new();
+    let input = config
+        .get::<HashMap<String, config::Value>>(section)
+        .unwrap_or(HashMap::new());
+
+    for (section, value) in input {
+        let map = match value.try_deserialize::<HashMap<String, String>>() {
+            Ok(c) => c,
+            Err(e) => {
+                error!("加载命名配置'{section}'失败：{e}");
+                panic!("加载命名配置失败");
+            }
+        };
+        result.insert(section, map);
+    }
+
+    result
 }
 
 /// 订阅者聚合配置结构

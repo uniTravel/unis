@@ -8,7 +8,11 @@ sems = 50
 hotspot = true
 sems = 300
 
-[tc.Note]
+[tc.Account]
+"auto.offset.reset" = "earliest"
+"auto.commit.interval.ms" = "1000"
+
+[tc.Transaction]
 "auto.offset.reset" = "earliest"
 "auto.commit.interval.ms" = "1000"
 

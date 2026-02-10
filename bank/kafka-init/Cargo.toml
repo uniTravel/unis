@@ -1,0 +1,19 @@
+[package]
+name = "kafka-init"
+version = "0.1.0"
+
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+domain = { path = "../domain" }
+unis.workspace = true
+unis-utils.workspace = true
+
+rdkafka = "0.38"
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true

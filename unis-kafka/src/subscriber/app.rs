@@ -12,7 +12,6 @@ use rkyv::{
 };
 use std::{
     ops::Deref,
-    path::PathBuf,
     sync::{Arc, LazyLock},
 };
 use tokio::{
@@ -23,7 +22,7 @@ use tracing::{debug, debug_span, error, info};
 use unis::{config::build_config, domain::CommandEnum};
 
 static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
-    let config = build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    let config = build_config();
     let bootstrap = load_bootstrap(&config);
     ClientConfig::new()
         .set("bootstrap.servers", bootstrap)
@@ -93,7 +92,7 @@ impl App {
         <C as Archive>::Archived: Sync + Deserialize<C, Strategy<Pool, Error>>,
     {
         if let Err(e) = Subscriber::<C::A, C, C::E>::launch(Arc::clone(self)).await {
-            error!(e);
+            error!("{e}");
             self.shutdown().await;
             self.all_done().await;
             panic!("异常退出订阅者初始设置")

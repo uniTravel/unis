@@ -15,10 +15,7 @@ use rdkafka::{
     client::DefaultClientContext,
 };
 use rstest::{fixture, rstest};
-use std::{
-    path::PathBuf,
-    sync::{Arc, LazyLock},
-};
+use std::sync::{Arc, LazyLock};
 use tokio::{
     sync::OnceCell,
     time::{Duration, sleep},
@@ -35,7 +32,7 @@ use unis_utils::kube::{HelmRelease, KubeCluster};
 use uuid::Uuid;
 
 static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
-    let config = build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    let config = build_config();
     let bootstrap = config::load_bootstrap(&config);
     ClientConfig::new()
         .set("bootstrap.servers", bootstrap)

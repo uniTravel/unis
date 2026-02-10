@@ -7,7 +7,11 @@ sems = 50
 hotspot = true
 sems = 300
 
-[cc.Note]
+[cc.Account]
+"auto.offset.reset" = "earliest"
+"auto.commit.interval.ms" = "1000"
+
+[cc.Transaction]
 "auto.offset.reset" = "earliest"
 "auto.commit.interval.ms" = "1000"
 

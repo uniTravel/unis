@@ -9,7 +9,6 @@ pub use app::context;
 #[cfg(any(test, feature = "test-utils"))]
 pub use app::test_context;
 
-use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicBool;
 use thiserror::Error;
@@ -18,8 +17,7 @@ use unis::config::build_config;
 static EXIT: AtomicBool = AtomicBool::new(false);
 static CLOSED: AtomicBool = AtomicBool::new(false);
 
-static CONFIG: LazyLock<config::Config> =
-    LazyLock::new(|| build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR"))));
+static CONFIG: LazyLock<config::Config> = LazyLock::new(|| build_config());
 
 #[derive(Debug, Error)]
 enum ProjectError {

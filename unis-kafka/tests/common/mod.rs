@@ -6,10 +6,7 @@ pub(crate) use rdkafka::{
 };
 pub(crate) use rstest::{fixture, rstest};
 use std::sync::Mutex;
-pub(crate) use std::{
-    path::PathBuf,
-    sync::{Arc, LazyLock},
-};
+pub(crate) use std::sync::{Arc, LazyLock};
 pub(crate) use tokio::{sync::OnceCell, time::Duration};
 use tracing::{Level, error};
 use tracing_appender::non_blocking;
@@ -25,7 +22,7 @@ pub(crate) use unis_kafka::{sender, subscriber};
 pub(crate) use uuid::Uuid;
 
 pub(crate) static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
-    let config = config::build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    let config = config::build_config();
     let bootstrap = match config.get::<String>("bootstrap") {
         Ok(c) => c,
         Err(e) => {

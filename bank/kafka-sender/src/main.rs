@@ -17,14 +17,16 @@ async fn main() {
         .pretty()
         .init();
 
+    let ctx = sender::context().await;
     let app = Router::new()
-        .merge(routes::account_routes().with_state(Arc::new(
-            sender::context().await.setup::<AccountCommand>().await,
-        )))
-        .merge(routes::transaction_routes().with_state(Arc::new(
-            sender::context().await.setup::<TransactionCommand>().await,
-        )));
+        .merge(routes::account_routes().with_state(Arc::new(ctx.setup::<AccountCommand>().await)))
+        .merge(
+            routes::transaction_routes()
+                .with_state(Arc::new(ctx.setup::<TransactionCommand>().await)),
+        );
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    let _ = axum::serve(listener, app).await;
+    let _ = axum::serve(listener, app)
+        .with_graceful_shutdown(async move { ctx.all_done().await })
+        .await;
 }

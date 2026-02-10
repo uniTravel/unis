@@ -7,6 +7,7 @@ members = [
     "unis-utils",
     "note",
     "bank/domain",
+    "bank/kafka-init",
     "bank/kafka-projector",
     "bank/kafka-subscriber",
     "bank/kafka-sender",

@@ -2,45 +2,21 @@
 
 use std::{
     collections::HashMap,
-    path::PathBuf,
     sync::{OnceLock, RwLock},
 };
 use tokio::time::Duration;
 use tracing::error;
 use unis::{
-    config::{NamedConfig, SendConfig, SubscribeConfig, build_config, load_named_config},
+    config::{self, NamedConfig, SendConfig, SubscribeConfig},
     domain,
 };
 
 static SUBSCRIBER: OnceLock<RwLock<SubscriberConfig>> = OnceLock::new();
 static SENDER: OnceLock<RwLock<SenderConfig>> = OnceLock::new();
 
-fn load_named_setting(
-    config: &config::Config,
-    section: &str,
-) -> HashMap<String, HashMap<String, String>> {
-    let mut result = HashMap::new();
-    let input = config
-        .get::<HashMap<String, config::Value>>(section)
-        .unwrap_or(HashMap::new());
-
-    for (section, value) in input {
-        let map = match value.try_deserialize::<HashMap<String, String>>() {
-            Ok(c) => c,
-            Err(e) => {
-                error!("加载命名配置'{section}'失败：{e}");
-                panic!("加载命名配置失败");
-            }
-        };
-        result.insert(section, map);
-    }
-
-    result
-}
-
 #[inline]
-pub(crate) fn load_name(config: &config::Config) -> String {
-    match config.get("name") {
+pub(crate) fn load_name(cfg: &::config::Config) -> String {
+    match cfg.get("name") {
         Ok(c) => c,
         Err(e) => {
             error!("加载'name'配置失败：{e}");
@@ -50,8 +26,8 @@ pub(crate) fn load_name(config: &config::Config) -> String {
 }
 
 #[inline]
-pub(crate) fn load_hostname(config: &config::Config) -> String {
-    match config.get("hostname") {
+pub(crate) fn load_hostname(cfg: &::config::Config) -> String {
+    match cfg.get("hostname") {
         Ok(c) => c,
         Err(e) => {
             error!("加载'hostname'配置失败：{e}");
@@ -61,8 +37,8 @@ pub(crate) fn load_hostname(config: &config::Config) -> String {
 }
 
 #[inline]
-pub(crate) fn load_bootstrap(config: &config::Config) -> String {
-    match config.get("bootstrap") {
+pub(crate) fn load_bootstrap(cfg: &::config::Config) -> String {
+    match cfg.get("bootstrap") {
         Ok(c) => c,
         Err(e) => {
             error!("加载'bootstrap'配置失败：{e}");
@@ -72,22 +48,22 @@ pub(crate) fn load_bootstrap(config: &config::Config) -> String {
 }
 
 #[inline]
-fn load_timeout(config: &config::Config) -> Duration {
-    match config.get("timeout") {
+fn load_timeout(cfg: &::config::Config) -> Duration {
+    match cfg.get("timeout") {
         Ok(t) => Duration::from_secs(t),
         Err(_) => Duration::from_secs(45),
     }
 }
 
 fn load_subscriber() -> SubscriberConfig {
-    let config = build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-    let bootstrap = load_bootstrap(&config);
-    let replicas = config.get("replicas").unwrap_or(3);
-    let aggs = config.get("aggs").unwrap_or(16);
-    let timeout = load_timeout(&config);
-    let subscriber = load_named_config(&config, "subscriber");
-    let cc = load_named_setting(&config, "cc");
-    let tp = match config.get::<HashMap<String, String>>("tp") {
+    let cfg = config::build_config();
+    let bootstrap = load_bootstrap(&cfg);
+    let replicas = cfg.get("replicas").unwrap_or(3);
+    let aggs = cfg.get("aggs").unwrap_or(16);
+    let timeout = load_timeout(&cfg);
+    let subscriber = config::load_named_config(&cfg, "subscriber");
+    let cc = config::load_named_setting(&cfg, "cc");
+    let tp = match cfg.get::<HashMap<String, String>>("tp") {
         Ok(c) => c,
         Err(e) => {
             error!("加载聚合类型生产者配置失败：{e}");
@@ -106,13 +82,13 @@ fn load_subscriber() -> SubscriberConfig {
 }
 
 fn load_sender() -> SenderConfig {
-    let config = build_config(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-    let bootstrap = load_bootstrap(&config);
-    let hostname = load_hostname(&config);
-    let timeout = load_timeout(&config);
-    let sender = load_named_config(&config, "sender");
-    let tc = load_named_setting(&config, "tc");
-    let cp = match config.get::<HashMap<String, String>>("cp") {
+    let cfg = config::build_config();
+    let bootstrap = load_bootstrap(&cfg);
+    let hostname = load_hostname(&cfg);
+    let timeout = load_timeout(&cfg);
+    let sender = config::load_named_config(&cfg, "sender");
+    let tc = config::load_named_setting(&cfg, "tc");
+    let cp = match cfg.get::<HashMap<String, String>>("cp") {
         Ok(c) => c,
         Err(e) => {
             error!("加载聚合命令生产者配置失败：{e}");
