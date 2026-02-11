@@ -16,6 +16,7 @@ use rkyv::{
 use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
 use uuid::Uuid;
+use validator::Validate;
 
 /// 命令请求的路径参数
 #[derive(serde::Deserialize)]
@@ -36,7 +37,7 @@ pub struct UniCommand<T, F>(pub T, pub PhantomData<F>);
 
 impl<T, S> FromRequest<S> for UniCommand<T, RkyvFormat>
 where
-    T: Command,
+    T: Command + Validate,
     <T as Archive>::Archived: Deserialize<T, Strategy<Pool, Error>>,
     <T as Archive>::Archived:
         for<'m> CheckBytes<Strategy<Validator<ArchiveValidator<'m>, SharedValidator>, Error>>,
@@ -52,16 +53,19 @@ where
 
         let mut aligned = AlignedVec::<4096>::new();
         aligned.extend_from_slice(&bytes);
-        let value = rkyv::from_bytes::<T, Error>(&aligned)
+        let com = rkyv::from_bytes::<T, Error>(&aligned)
             .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?;
 
-        Ok(UniCommand(value, PhantomData))
+        com.validate()
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?;
+
+        Ok(UniCommand(com, PhantomData))
     }
 }
 
 impl<T, S> FromRequest<S> for UniCommand<T, JsonFormat>
 where
-    T: Command + DeserializeOwned,
+    T: Command + Validate + DeserializeOwned,
     Bytes: FromRequest<S>,
     S: Send + Sync,
 {
@@ -72,8 +76,11 @@ where
             .await
             .map_err(|e| e.into_response())?;
 
-        let Json(value) = Json::<T>::from_bytes(&bytes).map_err(|e| e.into_response())?;
+        let Json(com) = Json::<T>::from_bytes(&bytes).map_err(|e| e.into_response())?;
 
-        Ok(UniCommand(value, PhantomData))
+        com.validate()
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?;
+
+        Ok(UniCommand(com, PhantomData))
     }
 }

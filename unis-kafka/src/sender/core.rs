@@ -1,4 +1,4 @@
-use crate::{config::SenderConfig, sender::app::App};
+use crate::config::SenderConfig;
 use ahash::AHashMap;
 use rdkafka::{
     ClientConfig, Message,
@@ -125,7 +125,8 @@ where
 {
     /// 构造发送者
     #[instrument(name = "build_sender", skip_all, fields(agg_type))]
-    pub async fn new(context: Arc<App>) -> Result<Self, String> {
+    pub async fn new() -> Result<Self, String> {
+        let context = super::app::app().await;
         let agg_type = A::topic();
         Span::current().record("agg_type", agg_type);
         let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");

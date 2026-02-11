@@ -14,3 +14,4 @@ uuid.workspace = true
 serde.workspace = true
 rkyv.workspace = true
 validator.workspace = true
+chrono.workspace = true

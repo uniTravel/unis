@@ -1,3 +1,4 @@
+use chrono::Local;
 use unis::{
     domain::{Command, Event},
     errors::UniError,
@@ -21,7 +22,7 @@ impl Command for InitPeriod {
     fn apply(self, _agg: &Self::A) -> Self::E {
         Self::E {
             account_code: self.account_code,
-            period: "".to_string(),
+            period: Local::now().format("%Y-%m").to_string(),
             limit: self.limit,
         }
     }

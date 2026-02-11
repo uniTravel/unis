@@ -1,4 +1,4 @@
-use super::{SUBSCRIBER_CONFIG, app::App, reader, stream::Writer};
+use super::{SUBSCRIBER_CONFIG, reader, stream::Writer};
 use rdkafka::{
     ClientConfig, Message,
     consumer::{Consumer, StreamConsumer},
@@ -43,7 +43,8 @@ where
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
     #[instrument(name = "launch_subscriber", skip_all, fields(agg_type))]
-    pub async fn launch(context: Arc<App>) -> Result<(), String> {
+    pub async fn launch() -> Result<(), String> {
+        let context = super::app::app().await;
         let agg_type = A::topic();
         Span::current().record("agg_type", agg_type);
         let cfg_name = agg_type.rsplit(".").next().ok_or("获取聚合名称失败")?;

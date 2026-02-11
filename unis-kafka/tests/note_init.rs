@@ -18,9 +18,9 @@ async fn init(#[future(awt)] _external_setup: ()) {
 #[tokio::test]
 async fn create_note(
     #[future(awt)] _init: (),
-    #[future(awt)] ctx_subscriber: Arc<subscriber::App>,
-    #[future(awt)] ctx_sender: Arc<sender::App>,
-    #[future(awt)] ctx_projector: Arc<Mutex<projector::App>>,
+    #[future(awt)] ctx_subscriber: &'static subscriber::App,
+    #[future(awt)] ctx_sender: &'static sender::App,
+    #[future(awt)] ctx_projector: &'static Mutex<projector::App>,
 ) {
     std::thread::spawn(move || {
         let mut guard = ctx_projector.lock().unwrap();

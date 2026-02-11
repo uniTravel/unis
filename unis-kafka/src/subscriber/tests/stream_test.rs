@@ -11,7 +11,7 @@ async fn init(#[future(awt)] _internal_setup: ()) {
 
 #[rstest]
 #[tokio::test]
-async fn write_with_agg_topic(#[future(awt)] _init: (), #[future(awt)] context: Arc<App>) {
+async fn write_with_agg_topic(#[future(awt)] _init: (), #[future(awt)] context: &'static App) {
     let stream = stream(&context);
     let agg_type = note::Note::topic();
 
@@ -26,7 +26,7 @@ async fn write_with_agg_topic(#[future(awt)] _init: (), #[future(awt)] context: 
 
 #[rstest]
 #[tokio::test]
-async fn write_without_agg_topic(#[future(awt)] _init: (), #[future(awt)] context: Arc<App>) {
+async fn write_without_agg_topic(#[future(awt)] _init: (), #[future(awt)] context: &'static App) {
     let stream = stream(&context);
     let agg_type = note::Note::topic();
 
@@ -40,7 +40,7 @@ async fn write_without_agg_topic(#[future(awt)] _init: (), #[future(awt)] contex
 
 #[rstest]
 #[tokio::test]
-async fn respond_to_stream(#[future(awt)] _init: (), #[future(awt)] context: Arc<App>) {
+async fn respond_to_stream(#[future(awt)] _init: (), #[future(awt)] context: &'static App) {
     let stream = stream(&context);
     let agg_type = note::Note::topic();
 

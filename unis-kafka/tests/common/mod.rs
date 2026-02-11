@@ -5,8 +5,8 @@ pub(crate) use rdkafka::{
     client::DefaultClientContext,
 };
 pub(crate) use rstest::{fixture, rstest};
+pub(crate) use std::sync::LazyLock;
 use std::sync::Mutex;
-pub(crate) use std::sync::{Arc, LazyLock};
 pub(crate) use tokio::{sync::OnceCell, time::Duration};
 use tracing::{Level, error};
 use tracing_appender::non_blocking;
@@ -73,16 +73,16 @@ pub(crate) async fn external_setup() {
 }
 
 #[fixture]
-pub(crate) async fn ctx_subscriber() -> Arc<subscriber::App> {
+pub(crate) async fn ctx_subscriber() -> &'static subscriber::App {
     subscriber::test_context().await
 }
 
 #[fixture]
-pub(crate) async fn ctx_sender() -> Arc<sender::App> {
+pub(crate) async fn ctx_sender() -> &'static sender::App {
     sender::test_context().await
 }
 
 #[fixture]
-pub(crate) async fn ctx_projector() -> Arc<Mutex<projector::App>> {
+pub(crate) async fn ctx_projector() -> &'static Mutex<projector::App> {
     projector::test_context().await
 }

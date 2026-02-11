@@ -36,39 +36,24 @@ static OPTS: LazyLock<AdminOptions> = LazyLock::new(|| {
         .request_timeout(Some(Duration::from_secs(5)))
 });
 
-static CONTEXT: OnceCell<Arc<App>> = OnceCell::const_new();
+static CONTEXT: OnceCell<App> = OnceCell::const_new();
+pub(super) async fn app() -> &'static App {
+    CONTEXT.get_or_init(App::new).await
+}
+
 /// 订阅者上下文
-pub async fn context() -> Arc<App> {
-    Arc::clone(
-        CONTEXT
-            .get_or_init(|| async {
-                LazyLock::force(&ADMIN);
-                LazyLock::force(&OPTS);
-                let (topic_tx, topic_rx) = mpsc::unbounded_channel::<TopicTask>();
-                let app = App::new(topic_tx);
-                app.spawn_notify(move |ready, notify| topic_creator(topic_rx, ready, notify))
-                    .await;
-                let app_clone = Arc::clone(&app);
-                tokio::spawn(async move {
-                    crate::shutdown_signal().await;
-                    app_clone.shutdown().await;
-                });
-                app
-            })
-            .await,
-    )
+pub async fn context() -> &'static App {
+    tokio::spawn(async move {
+        crate::shutdown_signal().await;
+        app().await.shutdown().await;
+    });
+    app().await
 }
 
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
-pub async fn test_context() -> Arc<App> {
-    LazyLock::force(&ADMIN);
-    LazyLock::force(&OPTS);
-    let (topic_tx, topic_rx) = mpsc::unbounded_channel::<TopicTask>();
-    let app = App::new(topic_tx);
-    app.spawn_notify(move |ready, notify| topic_creator(topic_rx, ready, notify))
-        .await;
-    app
+pub async fn test_context() -> &'static App {
+    app().await
 }
 
 /// 订阅者上下文结构
@@ -78,20 +63,26 @@ pub struct App {
 }
 
 impl App {
-    fn new(topic_tx: mpsc::UnboundedSender<TopicTask>) -> Arc<Self> {
-        Arc::new(Self {
+    async fn new() -> Self {
+        LazyLock::force(&ADMIN);
+        LazyLock::force(&OPTS);
+        let (topic_tx, topic_rx) = mpsc::unbounded_channel::<TopicTask>();
+        let app = Self {
             topic_tx,
             context: Context::new(),
-        })
+        };
+        app.spawn_notify(move |ready, notify| topic_creator(topic_rx, ready, notify))
+            .await;
+        app
     }
 
     /// 设置特定聚合类型的订阅者
-    pub async fn setup<C>(self: &Arc<Self>)
+    pub async fn setup<C>(&self)
     where
         C: CommandEnum,
         <C as Archive>::Archived: Sync + Deserialize<C, Strategy<Pool, Error>>,
     {
-        if let Err(e) = Subscriber::<C::A, C, C::E>::launch(Arc::clone(self)).await {
+        if let Err(e) = Subscriber::<C::A, C, C::E>::launch().await {
             error!("{e}");
             self.shutdown().await;
             self.all_done().await;

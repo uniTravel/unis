@@ -15,7 +15,7 @@ use rdkafka::{
     client::DefaultClientContext,
 };
 use rstest::{fixture, rstest};
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 use tokio::{
     sync::OnceCell,
     time::{Duration, sleep},
@@ -77,11 +77,11 @@ async fn internal_setup() {
 }
 
 #[fixture]
-async fn context() -> Arc<App> {
+async fn context() -> &'static App {
     app::test_context().await
 }
 
-fn stream(context: &Arc<App>) -> Writer {
+fn stream(context: &'static App) -> Writer {
     let agg_type = note::Note::topic();
     let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
     let cfg = SUBSCRIBER_CONFIG.subscriber.get(cfg_name);

@@ -22,7 +22,7 @@ async fn restore_without_coms(#[future(awt)] _init: ()) {
 
 #[rstest]
 #[tokio::test]
-async fn restore_with_coms(#[future(awt)] _init: (), #[future(awt)] context: Arc<App>) {
+async fn restore_with_coms(#[future(awt)] _init: (), #[future(awt)] context: &'static App) {
     let stream = stream(&context);
     let agg_type = note::Note::topic();
     let agg_id = Uuid::new_v4();
