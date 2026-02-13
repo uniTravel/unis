@@ -6,9 +6,9 @@ use unis::{
 
 #[command]
 pub struct SetLimit {
-    limit: i64,
-    trans_limit: i64,
-    balance: i64,
+    pub limit: i64,
+    pub trans_limit: i64,
+    pub balance: i64,
 }
 
 impl Command for SetLimit {

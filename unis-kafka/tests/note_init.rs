@@ -22,7 +22,7 @@ async fn create_note(
     #[future(awt)] ctx_sender: &'static sender::App,
     #[future(awt)] ctx_projector: &'static Mutex<projector::App>,
 ) {
-    std::thread::spawn(move || {
+    std::thread::spawn(|| {
         let mut guard = ctx_projector.lock().unwrap();
         guard.subscribe::<Note>();
         guard.launch();

@@ -16,3 +16,12 @@ axum.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender.workspace = true
+
+[dev-dependencies]
+unis-kafka = { workspace = true, features = ["test-utils"] }
+
+rstest.workspace = true
+uuid.workspace = true
+rkyv.workspace = true
+serde.workspace = true
+tower = { version = "0.5", features = ["util"] }

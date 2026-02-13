@@ -7,8 +7,8 @@ use unis::{
 
 #[command]
 pub struct InitPeriod {
-    account_code: String,
-    limit: i64,
+    pub account_code: String,
+    pub limit: i64,
 }
 
 impl Command for InitPeriod {

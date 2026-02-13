@@ -6,8 +6,8 @@ use unis::{
 
 #[command]
 pub struct TransferOut {
-    in_code: String,
-    amount: i64,
+    pub in_code: String,
+    pub amount: i64,
 }
 
 impl Command for TransferOut {

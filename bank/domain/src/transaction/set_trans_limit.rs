@@ -6,7 +6,7 @@ use unis::{
 
 #[command]
 pub struct SetTransLimit {
-    trans_limit: i64,
+    pub trans_limit: i64,
 }
 
 impl Command for SetTransLimit {

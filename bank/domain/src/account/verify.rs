@@ -6,8 +6,8 @@ use unis::{
 
 #[command]
 pub struct VerifyAccount {
-    verified_by: String,
-    conclusion: bool,
+    pub verified_by: String,
+    pub conclusion: bool,
 }
 
 impl Command for VerifyAccount {

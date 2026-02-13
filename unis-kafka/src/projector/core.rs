@@ -24,6 +24,7 @@ pub(super) struct Projector {
     interval: u64,
     ap: Option<ThreadedProducer<DefaultProducerContext>>,
     tc: BaseConsumer,
+    topics: Vec<&'static str>,
 }
 
 fn create_producer(
@@ -63,6 +64,7 @@ impl Projector {
             interval: 50,
             ap: Some(ap),
             tc,
+            topics: Vec::new(),
         }
     }
 
@@ -72,16 +74,17 @@ impl Projector {
         Ok(())
     }
 
-    pub fn subscribe<A>(&self)
+    pub fn subscribe<A>(&mut self)
     where
         A: Aggregate,
     {
-        self.tc
-            .subscribe(&[A::topic()])
-            .expect("订阅聚合类型事件流失败");
+        self.topics.push(A::topic());
     }
 
     pub fn launch(&mut self) -> Result<(), ProjectError> {
+        self.tc
+            .subscribe(&self.topics)
+            .expect("订阅聚合类型事件流失败");
         let mut msgs = AHashMap::with_capacity(self.partitions);
         let mut offsets = AHashMap::with_capacity(self.capacity);
         let mut last_flush = Instant::now();

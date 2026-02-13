@@ -7,8 +7,8 @@ use unis::{
 #[command]
 pub struct CreateAccount {
     #[validate(length(min = 6, max = 6))]
-    code: String,
-    owner: String,
+    pub code: String,
+    pub owner: String,
 }
 
 impl Command for CreateAccount {

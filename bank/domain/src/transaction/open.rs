@@ -7,8 +7,8 @@ use unis::{
 
 #[command]
 pub struct OpenPeriod {
-    account_code: String,
-    period: String,
+    pub account_code: String,
+    pub period: String,
 }
 
 impl Command for OpenPeriod {

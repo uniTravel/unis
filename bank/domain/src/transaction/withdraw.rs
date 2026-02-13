@@ -6,7 +6,7 @@ use unis::{
 
 #[command]
 pub struct Withdraw {
-    amount: i64,
+    pub amount: i64,
 }
 
 impl Command for Withdraw {

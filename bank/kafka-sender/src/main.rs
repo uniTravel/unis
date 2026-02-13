@@ -1,7 +1,9 @@
 mod handlers;
 mod routes;
+#[cfg(test)]
+mod tests;
 
-use axum::Router;
+use axum::{Router, routing::get};
 use domain::{account::AccountCommand, transaction::TransactionCommand};
 use std::sync::Arc;
 use tracing_appender::non_blocking;
@@ -21,6 +23,7 @@ async fn main() {
     let svc_account = Arc::new(ctx.setup::<AccountCommand>().await);
     let svc_transaction = Arc::new(ctx.setup::<TransactionCommand>().await);
     let app = Router::new()
+        .route("/", get(|| async { "Hello, World!" }))
         .merge(routes::account_routes().with_state(svc_account))
         .merge(routes::transaction_routes().with_state(svc_transaction));
 

@@ -6,7 +6,7 @@ use unis::{
 
 #[command]
 pub struct ChangeLimit {
-    limit: i64,
+    pub limit: i64,
 }
 
 impl Command for ChangeLimit {

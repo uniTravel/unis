@@ -6,7 +6,7 @@ use unis::{
 
 #[command]
 pub struct Deposit {
-    amount: i64,
+    pub amount: i64,
 }
 
 impl Command for Deposit {

@@ -7,7 +7,7 @@ use unis::{
 #[command]
 pub struct LimitAccount {
     #[validate(range(min = 10000, max = 10000000))]
-    limit: i64,
+    pub limit: i64,
 }
 
 impl Command for LimitAccount {

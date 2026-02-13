@@ -12,7 +12,7 @@ use tracing::{error, info};
 use unis::domain::Aggregate;
 
 static CONTEXT: OnceCell<Mutex<App>> = OnceCell::const_new();
-pub(super) async fn app() -> &'static Mutex<App> {
+async fn app() -> &'static Mutex<App> {
     CONTEXT.get_or_init(App::new).await
 }
 
@@ -44,7 +44,7 @@ impl App {
     }
 
     /// 订阅类型事件流
-    pub fn subscribe<A>(&self)
+    pub fn subscribe<A>(&mut self)
     where
         A: Aggregate,
     {
