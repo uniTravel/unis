@@ -2,8 +2,8 @@ use super::*;
 
 #[fixture]
 async fn init(#[future(awt)] _internal_setup: ()) {
-    let topic = note::Note::topic();
-    let topic_com = note::Note::topic_com();
+    let topic = account::Account::topic();
+    let topic_com = account::Account::topic_com();
     let agg = NewTopic::new(topic, 3, TopicReplication::Fixed(3));
     let com = NewTopic::new(topic_com, 3, TopicReplication::Fixed(3));
     let _ = ADMIN.create_topics(&vec![agg, com], &OPTS).await;
@@ -13,7 +13,7 @@ async fn init(#[future(awt)] _internal_setup: ()) {
 #[tokio::test]
 async fn write_with_agg_topic(#[future(awt)] _init: (), #[future(awt)] context: &'static App) {
     let stream = stream(&context);
-    let agg_type = note::Note::topic();
+    let agg_type = account::Account::topic();
 
     let agg_id = Uuid::new_v4();
     let com_id = Uuid::new_v4();
@@ -28,7 +28,7 @@ async fn write_with_agg_topic(#[future(awt)] _init: (), #[future(awt)] context: 
 #[tokio::test]
 async fn write_without_agg_topic(#[future(awt)] _init: (), #[future(awt)] context: &'static App) {
     let stream = stream(&context);
-    let agg_type = note::Note::topic();
+    let agg_type = account::Account::topic();
 
     let agg_id = Uuid::new_v4();
     let com_id = Uuid::new_v4();
@@ -42,7 +42,7 @@ async fn write_without_agg_topic(#[future(awt)] _init: (), #[future(awt)] contex
 #[tokio::test]
 async fn respond_to_stream(#[future(awt)] _init: (), #[future(awt)] context: &'static App) {
     let stream = stream(&context);
-    let agg_type = note::Note::topic();
+    let agg_type = account::Account::topic();
 
     let agg_id = Uuid::new_v4();
     let com_id = Uuid::new_v4();

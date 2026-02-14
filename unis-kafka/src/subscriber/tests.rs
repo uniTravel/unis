@@ -8,7 +8,7 @@ use super::{
     stream::Writer,
 };
 use crate::config;
-use note::note;
+use domain::account;
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
@@ -82,7 +82,7 @@ async fn context() -> &'static App {
 }
 
 fn stream(context: &'static App) -> Writer {
-    let agg_type = note::Note::topic();
+    let agg_type = account::Account::topic();
     let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
     let cfg = SUBSCRIBER_CONFIG.subscriber.get(cfg_name);
     Writer::new(&cfg, context.topic_tx())

@@ -33,7 +33,7 @@ thiserror.workspace = true
 config.workspace = true
 
 [dev-dependencies]
-note = { path = "../note" }
+domain = { path = "../bank/domain" }
 unis.workspace = true
 unis-utils.workspace = true
 unis-kafka = { workspace = true, features = [

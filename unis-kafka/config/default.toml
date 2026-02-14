@@ -1,4 +1,4 @@
-name = "note"
+name = "bank"
 hostname = ""
 bootstrap = "localhost:30001,localhost:30002,localhost:30003"
 
