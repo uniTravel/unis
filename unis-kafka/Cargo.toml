@@ -15,8 +15,6 @@ projector = []
 test-utils = []
 
 [dependencies]
-rdkafka = "0.38"
-
 unis.workspace = true
 
 uuid.workspace = true
@@ -24,6 +22,7 @@ ahash.workspace = true
 crossbeam.workspace = true
 rkyv.workspace = true
 tokio.workspace = true
+rdkafka.workspace = true
 
 tracing.workspace = true
 tracing-subscriber.workspace = true

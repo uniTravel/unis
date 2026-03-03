@@ -1,95 +1,132 @@
 //! Kafka 投影者上下文
 
-use super::{CLOSED, CONFIG, EXIT, ProjectError, core::Projector};
-use crate::config::load_name;
+use super::{CONFIG, ProjectError, core::Projector};
+use crate::{
+    Context,
+    config::{load_bootstrap, load_hostname, load_name},
+};
+use rdkafka::{
+    ClientConfig,
+    consumer::{Consumer, StreamConsumer},
+    error::KafkaError,
+    producer::{FutureProducer, Producer},
+};
 use std::{
-    sync::{Mutex, atomic::Ordering},
+    ops::Deref,
+    sync::{Arc, LazyLock},
     thread::sleep,
     time::Duration,
 };
-use tokio::sync::OnceCell;
-use tracing::{error, info};
-use unis::domain::Aggregate;
+use tokio::sync::Notify;
+use tracing::error;
 
-static CONTEXT: OnceCell<Mutex<App>> = OnceCell::const_new();
-async fn app() -> &'static Mutex<App> {
-    CONTEXT.get_or_init(App::new).await
+static CONTEXT: LazyLock<App> = LazyLock::new(|| App::new());
+fn app() -> &'static App {
+    &CONTEXT
 }
 
 /// 投影者上下文
-pub async fn context() -> &'static Mutex<App> {
+pub async fn context() -> &'static App {
     tokio::spawn(async move {
         crate::shutdown_signal().await;
-        let _ = EXIT.compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed);
+        app().shutdown().await;
     });
-    app().await
+    app()
 }
 
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
-pub async fn test_context() -> &'static Mutex<App> {
-    app().await
+pub async fn test_context() -> &'static App {
+    app()
+}
+
+fn create_producer(bootstrap: &str, transaction_id: &str) -> Result<FutureProducer, KafkaError> {
+    let ap: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap)
+        .set("transactional.id", transaction_id)
+        .create()?;
+    ap.init_transactions(Duration::from_secs(30))?;
+    Ok(ap)
+}
+
+fn create_consumer(bootstrap: &str, group_id: &str) -> Result<StreamConsumer, KafkaError> {
+    ClientConfig::new()
+        .set("bootstrap.servers", bootstrap)
+        .set("group.id", group_id)
+        .set("enable.auto.commit", "false")
+        .set("auto.offset.reset", "earliest")
+        .set("isolation.level", "read_committed")
+        .set("group.protocol", "consumer")
+        .create()
 }
 
 /// 投影者上下文结构
 pub struct App {
     projector: Projector,
+    context: Context,
 }
 
 impl App {
-    async fn new() -> Mutex<Self> {
-        Mutex::new(Self {
-            projector: Projector::new(load_name(&CONFIG)),
-        })
-    }
-
-    /// 订阅类型事件流
-    pub fn subscribe<A>(&mut self)
-    where
-        A: Aggregate,
-    {
-        self.projector.subscribe::<A>();
+    fn new() -> Self {
+        Self {
+            projector: Projector::new(),
+            context: Context::new(),
+        }
     }
 
     /// 启动投影
-    pub fn launch(&mut self) {
-        let mins = 2;
+    pub async fn launch(&'static self, topics: Vec<&'static str>) {
+        self.spawn_notify(move |ready, notify| self.run(topics, ready, notify))
+            .await;
+    }
+
+    async fn run(&self, topics: Vec<&'static str>, ready: Arc<Notify>, notify: Arc<Notify>) {
+        let secs = 45;
+        let mut count = 0;
+        let bootstrap = load_bootstrap(&super::CONFIG);
+        let group_id = load_name(&CONFIG);
+        let hostname = load_hostname(&super::CONFIG);
+        let transaction = format!("{group_id}-{hostname}");
+        let mut tc = create_consumer(&bootstrap, &group_id).expect("初创投影消费者失败");
+        tc.subscribe(&topics).expect("订阅聚合类型事件流失败");
+        let mut ap = create_producer(&bootstrap, &transaction).expect("初创投影生产者失败");
         loop {
-            match self.projector.launch() {
+            match self
+                .projector
+                .process(&ap, &tc, Arc::clone(&ready), Arc::clone(&notify))
+                .await
+            {
                 Ok(()) => break,
-                Err(e) => {
+                Err(ProjectError::UniError(e)) => {
                     error!("投影处理错误：{:?}", e);
-                    match e {
-                        ProjectError::UniError(_) => break,
-                        ProjectError::MetadataError => sleep(Duration::from_mins(mins)),
-                        ProjectError::KafkaError(_) | ProjectError::ProducerNotFound => loop {
-                            match self.projector.rebuild() {
-                                Ok(()) => break,
-                                Err(e) => {
-                                    error!("重建生产者错误：{:?}", e);
-                                    sleep(Duration::from_mins(mins));
-                                }
-                            }
-                        },
+                    break;
+                }
+                Err(ProjectError::MetadataError) => {
+                    count += 1;
+                    error!("获取消费组元数据失败");
+                    if count == 15 {
+                        error!("重试 {count} 次仍然失败，退出应用！");
+                        break;
+                    } else {
+                        sleep(Duration::from_secs(secs));
+                        continue;
                     }
+                }
+                Err(ProjectError::KafkaError(e)) => {
+                    error!("投影处理错误：{:?}", e);
+                    tc = create_consumer(&bootstrap, &group_id).expect("初创投影消费者失败");
+                    ap = create_producer(&bootstrap, &transaction).expect("初创投影生产者失败");
+                    sleep(Duration::from_secs(secs));
                 }
             }
         }
-        let _ = CLOSED.compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed);
     }
+}
 
-    /// 等待投影任务优雅退出
-    pub fn all_done() {
-        while !CLOSED.load(Ordering::SeqCst) {
-            sleep(Duration::from_millis(5));
-        }
-        info!("优雅退出投影任务");
-    }
+impl Deref for App {
+    type Target = Context;
 
-    #[doc(hidden)]
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn teardown() {
-        let _ = EXIT.compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed);
-        Self::all_done();
+    fn deref(&self) -> &Self::Target {
+        &self.context
     }
 }

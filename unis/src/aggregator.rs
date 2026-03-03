@@ -24,7 +24,7 @@ use tokio::{
     },
     time::{self, Duration, Instant, MissedTickBehavior},
 };
-use tracing::{Span, error, field, info, instrument, warn};
+use tracing::{Span, debug, error, field, info, instrument, warn};
 use uuid::Uuid;
 
 impl<F, Fut> Restore for F
@@ -209,7 +209,7 @@ where
                         }
                     } else {
                         match com.apply(agg_type, agg_id, agg.clone(), loader).await {
-                            Ok((mut na, evt)) => match evt.to_bytes(&mut arena) {
+                            Ok((na, evt)) => match evt.to_bytes(&mut arena) {
                                 Ok(bytes) => match stream
                                     .write(
                                         agg_type,
@@ -222,9 +222,9 @@ where
                                 {
                                     Ok(()) => {
                                         info!("聚合类型事件写入成功");
-                                        na.next();
                                         agg = na;
                                         coms.insert(com_id);
+                                        debug!("聚合版本：{}", agg.revision());
                                     }
                                     Err(e) => {
                                         error!("聚合类型事件写入失败：{e}");

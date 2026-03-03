@@ -7,12 +7,11 @@ async fn create_account(#[future(awt)] app: Router, #[future(awt)] ctx: &'static
         code: "123456".to_string(),
         owner: "张三".to_string(),
     };
-    let agg_id = Uuid::new_v4();
     let com_id = Uuid::new_v4();
 
     let response = app
         .oneshot(
-            Request::post(&route("create", agg_id, com_id))
+            Request::post(&create("/api/v1/rkyv/account", "create", com_id))
                 .header("Content-Type", "application/octet-stream")
                 .body(Body::from(rkyv::to_bytes::<Error>(&com).unwrap().to_vec()))
                 .unwrap(),
@@ -39,7 +38,7 @@ async fn verify_account(#[future(awt)] app: Router, #[future(awt)] ctx: &'static
 
     let response = app
         .oneshot(
-            Request::post(&route("verify", agg_id, com_id))
+            Request::post(&change("/api/v1/rkyv/account", "verify", agg_id, com_id))
                 .header("Content-Type", "application/octet-stream")
                 .body(Body::from(rkyv::to_bytes::<Error>(&com).unwrap().to_vec()))
                 .unwrap(),
@@ -50,5 +49,6 @@ async fn verify_account(#[future(awt)] app: Router, #[future(awt)] ctx: &'static
 
     let body = to_bytes(response.into_body(), 64).await.unwrap();
     assert_eq!(body, Bytes::from("读取事件流错误"));
+
     ctx.teardown().await;
 }

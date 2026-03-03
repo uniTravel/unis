@@ -8,14 +8,11 @@ pub use app::context;
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
 pub use app::test_context;
+pub use unis::domain::Aggregate;
 
 use std::sync::LazyLock;
-use std::sync::atomic::AtomicBool;
 use thiserror::Error;
 use unis::config::build_config;
-
-static EXIT: AtomicBool = AtomicBool::new(false);
-static CLOSED: AtomicBool = AtomicBool::new(false);
 
 static CONFIG: LazyLock<config::Config> = LazyLock::new(|| build_config());
 
@@ -25,8 +22,6 @@ enum ProjectError {
     UniError(#[from] unis::errors::UniError),
     #[error("无法获取消费组元数据")]
     MetadataError,
-    #[error("生产者不存在")]
-    ProducerNotFound,
     #[error("{0}")]
     KafkaError(#[from] rdkafka::error::KafkaError),
 }

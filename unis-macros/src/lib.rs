@@ -9,7 +9,7 @@ use syn::{Fields, Ident, ItemEnum, ItemStruct, parse_macro_input};
 /// 规范聚合结构体定义
 ///
 /// 1. 生成私有的 id、revision 字段。
-/// 2. 添加 #[derive(Debug, Clone)]。
+/// 2. 添加 #[derive(Debug, Clone, Default)]。
 /// 3. 实现 Aggregate 特征。
 ///
 /// # Panics
@@ -74,7 +74,7 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Default)]
         #input
 
         impl unis::domain::Aggregate for #struct_name {
@@ -184,7 +184,7 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
                 panic!("枚举变体 {} 缺少判别值", variant_name);
             });
         quote! {
-            #enum_name::#variant_name(evt) => evt.apply(agg)
+            #enum_name::#variant_name(evt) => evt.process(agg)
         }
     });
     let expanded = quote! {

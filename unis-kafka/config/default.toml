@@ -2,20 +2,22 @@ name = "bank"
 hostname = ""
 bootstrap = "localhost:30001,localhost:30002,localhost:30003"
 
-[subscriber.Note]
+[subscriber.Account]
 hotspot = true
 sems = 300
 
-[sender.Note]
+[sender.Account]
 sems = 50
 
-[cc.Note]
+[cc.Account]
 "auto.offset.reset" = "earliest"
 "auto.commit.interval.ms" = "1000"
+"group.protocol" = "consumer"
 
-[tc.Note]
+[tc.Account]
 "auto.offset.reset" = "earliest"
 "auto.commit.interval.ms" = "1000"
+"group.protocol" = "consumer"
 
 [tp]
 "linger.ms" = "1"

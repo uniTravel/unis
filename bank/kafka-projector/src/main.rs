@@ -1,22 +1,24 @@
 use domain::{account, transaction};
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
-use unis_kafka::projector;
+use unis_kafka::projector::{self, Aggregate};
 
 #[tokio::main]
 async fn main() {
     let (non_blocking, _guard) = non_blocking(std::io::stdout());
     fmt()
+        .with_max_level(tracing::Level::DEBUG)
         .with_writer(non_blocking)
         .with_target(false)
         .pretty()
         .init();
 
     let ctx = projector::context().await;
-    let mut guard = ctx.lock().unwrap();
-    guard.subscribe::<account::Account>();
-    guard.subscribe::<transaction::Transaction>();
-    guard.launch();
+    ctx.launch(vec![
+        account::Account::topic(),
+        transaction::Transaction::topic(),
+    ])
+    .await;
 
-    projector::App::all_done();
+    ctx.all_done().await;
 }

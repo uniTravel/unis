@@ -13,7 +13,7 @@ domain = { path = "../domain" }
 unis.workspace = true
 unis-utils.workspace = true
 
-rdkafka = "0.38"
+rdkafka.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

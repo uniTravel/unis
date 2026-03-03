@@ -1,28 +1,18 @@
 use super::*;
 use crate::handlers::transaction::*;
 use axum::routing::post;
-use unis_kafka::sender::{JsonFormat, RkyvFormat};
-
-macro_rules! transaction_impl {
-    ($format:ty, [$($op:ident), *]) => {{
-        let mut router = Router::new();
-        $(
-            router = router.route(
-                concat!("/transaction/", stringify!($op), "/{agg_id}/{com_id}"),
-                post($op::<$format>),
-            );
-        )*
-        router
-    }};
-}
+use unis_kafka::{
+    route_builder,
+    sender::{JsonFormat, RkyvFormat},
+};
 
 macro_rules! transaction_routes {
     ($format:ty) => {
-        transaction_impl!(
+        route_builder!(
+            transaction,
             $format,
+            [init, open],
             [
-                init,
-                open,
                 set_limit,
                 change_limit,
                 set_trans_limit,

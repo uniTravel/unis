@@ -40,6 +40,13 @@ pub trait Event: Archive + 'static {
 
     /// 事件应用到聚合
     fn apply(&self, agg: &mut Self::A);
+
+    /// 处理事件
+    #[inline]
+    fn process(&self, agg: &mut Self::A) {
+        self.apply(agg);
+        agg.next();
+    }
 }
 
 /// 命令特征
@@ -59,7 +66,7 @@ pub trait Command: Archive + Sized + 'static {
     fn process(self, na: &mut Self::A) -> Result<Self::E, UniError> {
         self.check(&na)?;
         let evt = self.apply(&na);
-        evt.apply(na);
+        evt.process(na);
         Ok(evt)
     }
 }
@@ -187,8 +194,10 @@ where
     E: EventEnum<A = A>,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
-    /// 发送命令
-    fn send(&self, agg_id: Uuid, com_id: Uuid, com: C) -> impl Future<Output = UniResponse>;
+    /// 发送创建聚合命令
+    fn create(&self, com_id: Uuid, com: C) -> impl Future<Output = UniResponse>;
+    /// 发送变更聚合命令
+    fn change(&self, agg_id: Uuid, com_id: Uuid, com: C) -> impl Future<Output = UniResponse>;
 }
 
 /// 配置特征

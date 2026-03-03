@@ -10,29 +10,36 @@ use axum::{
 use rkyv::rancor::Error;
 use rstest::{fixture, rstest};
 use std::sync::Arc;
-use tokio::sync::OnceCell;
 use tower::ServiceExt;
-use tracing::Level;
+use tracing::{Level, error};
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
-use unis_kafka::sender::{App, test_context};
+use unis_kafka::sender::{App, change, create, test_context};
 use uuid::Uuid;
 
-static SETUP: OnceCell<()> = OnceCell::const_new();
 #[fixture]
-async fn setup() {
-    SETUP
-        .get_or_init(|| async {
-            let (non_blocking, _guard) = non_blocking(std::io::stdout());
-            fmt()
-                .with_max_level(Level::DEBUG)
-                .with_writer(non_blocking)
-                .with_target(false)
-                .pretty()
-                .with_test_writer()
-                .init();
-        })
-        .await;
+#[once]
+fn setup() {
+    let (non_blocking, _guard) = non_blocking(std::io::stdout());
+    fmt()
+        .with_max_level(Level::DEBUG)
+        .with_writer(non_blocking)
+        .with_target(false)
+        .pretty()
+        .with_test_writer()
+        .init();
+    match std::env::var("NEXTEST_TEST_NAME") {
+        Ok(test_name) => {
+            let value = test_name.rsplit("::").next().unwrap();
+            unsafe {
+                std::env::set_var("UNI__HOSTNAME", value);
+            }
+        }
+        Err(e) => {
+            error!("获取环境变量 'NEXTEST_TEST_NAME' 失败：{e}");
+            panic!("需用 cargo nextest 执行测试！");
+        }
+    }
 }
 
 #[fixture]

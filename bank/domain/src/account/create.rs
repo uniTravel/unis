@@ -1,12 +1,16 @@
+use regex::Regex;
+use std::sync::LazyLock;
 use unis::{
     domain::{Command, Event},
     errors::UniError,
     macros::{command, event},
 };
 
+static CODE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9]{6}$").unwrap());
+
 #[command]
 pub struct CreateAccount {
-    #[validate(length(min = 6, max = 6))]
+    #[validate(regex(path = CODE_RE))]
     pub code: String,
     pub owner: String,
 }

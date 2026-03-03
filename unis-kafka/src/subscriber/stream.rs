@@ -50,7 +50,7 @@ impl domain::Stream for Writer {
         revision: u64,
         evt_data: &[u8],
     ) -> Result<(), UniError> {
-        if revision == u64::MAX {
+        if revision == 0 {
             debug!("创建聚合主题");
             if let Err(e) = self.topic_tx.send(TopicTask { agg_type, agg_id }) {
                 error!(agg_type, %agg_id, "发送聚合主题失败：{e}");

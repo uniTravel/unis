@@ -88,8 +88,14 @@ where
     E: EventEnum<A = A>,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
+    #[inline]
+    async fn create(&self, com_id: Uuid, com: C) -> UniResponse {
+        let agg_id = Uuid::new_v4();
+        self.change(agg_id, com_id, com).await
+    }
+
     #[instrument(name = "send_command", skip_all, fields(agg_type = self.agg_type, %agg_id, %com_id))]
-    async fn send(&self, agg_id: Uuid, com_id: Uuid, com: C) -> UniResponse {
+    async fn change(&self, agg_id: Uuid, com_id: Uuid, com: C) -> UniResponse {
         let (res_tx, res_rx) = oneshot::channel::<UniResponse>();
         if let Err(e) = self.tx.send(Todo::Reply {
             agg_id,
@@ -210,16 +216,19 @@ where
                     let _ = rs.extract_if(|_, (_, _, t)| t.elapsed() > Duration::from_secs(cfg.retain));
                 }
                 data = rx.recv() => match data {
-                    Some(Todo::Reply { agg_id, com_id, com, res_tx }) => match rs.get_mut(&com_id) {
-                        Some((Some(_), None, _)) => {
-                            let _ = res_tx.send(UniResponse::Duplicate);
+                    Some(Todo::Reply { agg_id, com_id, com, res_tx }) => match rs.remove(&com_id) {
+                        Some((Some(rep), None, _)) => {
+                            let _ = rep.send(UniResponse::Duplicate);
+                            rs.insert(com_id, (Some(res_tx), None, Instant::now()));
                         }
-                        Some((None, Some(_), _)) => {
-                            if let Some((_, Some(res), _)) = rs.remove(&com_id) {
-                                let _ = res_tx.send(res);
-                            }
+                        Some((None, Some(res), _)) => {
+                            let _ = res_tx.send(res);
                         }
-                        Some(_) => error!("请求反馈进入非法处理分支"),
+                        Some((Some(rep), Some(res), _)) => {
+                            let _ = rep.send(UniResponse::Duplicate);
+                            let _ = res_tx.send(res);
+                        }
+                        Some((None, None, _)) => error!("请求反馈进入非法处理分支"),
                         None => match com.to_bytes(&mut arena) {
                             Ok(bytes) => {
                                 let record = FutureRecord::to(topic)

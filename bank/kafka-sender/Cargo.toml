@@ -11,6 +11,7 @@ repository.workspace = true
 unis-kafka = { workspace = true, features = ["sender"] }
 domain = { path = "../domain" }
 
+uuid.workspace = true
 tokio.workspace = true
 axum.workspace = true
 tracing.workspace = true

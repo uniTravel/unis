@@ -11,10 +11,12 @@ sems = 300
 [tc.Account]
 "auto.offset.reset" = "earliest"
 "auto.commit.interval.ms" = "1000"
+"group.protocol" = "consumer"
 
 [tc.Transaction]
 "auto.offset.reset" = "earliest"
 "auto.commit.interval.ms" = "1000"
+"group.protocol" = "consumer"
 
 [cp]
 "linger.ms" = "1"

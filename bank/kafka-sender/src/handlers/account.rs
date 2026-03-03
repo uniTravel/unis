@@ -1,22 +1,14 @@
 use axum::extract::{Path, State};
-use domain::account::{self, AccountCommand};
+use domain::account::*;
 use std::sync::Arc;
-use unis_kafka::sender::{Request, Sender, UniCommand, UniKey, UniResponse};
+use unis_kafka::{
+    change_handler, create_handler,
+    sender::{Request, Sender, UniCommand, UniKey, UniResponse},
+};
+use uuid::Uuid;
 
-macro_rules! account_handlers {
-    ($func_name:ident, $com:ty, $variant:ident) => {
-        pub async fn $func_name<F>(
-            Path(UniKey { agg_id, com_id }): Path<UniKey>,
-            State(svc): State<Arc<Sender<AccountCommand>>>,
-            UniCommand(com, _): UniCommand<$com, F>,
-        ) -> UniResponse {
-            svc.send(agg_id, com_id, AccountCommand::$variant(com))
-                .await
-        }
-    };
-}
+create_handler!(create, AccountCommand, CreateAccount, Create);
 
-account_handlers!(create, account::CreateAccount, Create);
-account_handlers!(verify, account::VerifyAccount, Verify);
-account_handlers!(limit, account::LimitAccount, Limit);
-account_handlers!(approve, account::ApproveAccount, Approve);
+change_handler!(verify, AccountCommand, VerifyAccount, Verify);
+change_handler!(limit, AccountCommand, LimitAccount, Limit);
+change_handler!(approve, AccountCommand, ApproveAccount, Approve);

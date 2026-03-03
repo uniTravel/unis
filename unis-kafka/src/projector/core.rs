@@ -1,188 +1,166 @@
 use super::ProjectError;
-use crate::config::{load_bootstrap, load_hostname};
 use ahash::AHashMap;
 use rdkafka::{
-    ClientConfig, Message, TopicPartitionList,
-    consumer::{BaseConsumer, Consumer, ConsumerGroupMetadata},
+    Message, TopicPartitionList,
+    consumer::{Consumer, StreamConsumer},
     error::KafkaError,
     message::{BorrowedMessage, Headers},
-    producer::{BaseRecord, DefaultProducerContext, Producer, ThreadedProducer},
+    producer::{FutureProducer, FutureRecord, Producer, future_producer::Delivery},
 };
 use std::{
-    sync::atomic::Ordering,
+    sync::Arc,
     time::{Duration, Instant},
 };
+use tokio::sync::Notify;
 use tracing::{debug, info};
-use unis::{UniResponse, domain::Aggregate, errors::UniError};
+use unis::{UniResponse, errors::UniError};
 use uuid::Uuid;
 
 pub(super) struct Projector {
-    bootstrap: String,
-    transaction_id: String,
     capacity: usize,
     partitions: usize,
     interval: u64,
-    ap: Option<ThreadedProducer<DefaultProducerContext>>,
-    tc: BaseConsumer,
-    topics: Vec<&'static str>,
-}
-
-fn create_producer(
-    bootstrap: &str,
-    transaction_id: &str,
-) -> Result<ThreadedProducer<DefaultProducerContext>, KafkaError> {
-    let ap: ThreadedProducer<DefaultProducerContext> = ClientConfig::new()
-        .set("bootstrap.servers", bootstrap)
-        .set("transactional.id", transaction_id)
-        .create()?;
-    ap.init_transactions(Duration::from_secs(30))?;
-    Ok(ap)
-}
-
-fn create_consumer(bootstrap: &str, group_id: &str) -> Result<BaseConsumer, KafkaError> {
-    ClientConfig::new()
-        .set("bootstrap.servers", bootstrap)
-        .set("group.id", group_id)
-        .set("enable.auto.commit", "false")
-        .set("auto.offset.reset", "earliest")
-        .set("isolation.level", "read_committed")
-        .create()
 }
 
 impl Projector {
-    pub(super) fn new(group_id: String) -> Self {
-        let bootstrap = load_bootstrap(&super::CONFIG);
-        let hostname = load_hostname(&super::CONFIG);
-        let transaction_id = format!("{group_id}-{hostname}");
-        let ap = create_producer(&bootstrap, &transaction_id).expect("初创投影生产者失败");
-        let tc = create_consumer(&bootstrap, &group_id).expect("初创投影消费者失败");
+    pub(super) fn new() -> Self {
         Self {
-            bootstrap,
-            transaction_id,
             capacity: 100,
             partitions: 10,
             interval: 50,
-            ap: Some(ap),
-            tc,
-            topics: Vec::new(),
         }
     }
 
-    pub fn rebuild(&mut self) -> Result<(), ProjectError> {
-        let ap = create_producer(&self.bootstrap, &self.transaction_id)?;
-        self.ap = Some(ap);
-        Ok(())
-    }
-
-    pub fn subscribe<A>(&mut self)
-    where
-        A: Aggregate,
-    {
-        self.topics.push(A::topic());
-    }
-
-    pub fn launch(&mut self) -> Result<(), ProjectError> {
-        self.tc
-            .subscribe(&self.topics)
-            .expect("订阅聚合类型事件流失败");
+    pub async fn process(
+        &self,
+        ap: &FutureProducer,
+        tc: &StreamConsumer,
+        ready: Arc<Notify>,
+        notify: Arc<Notify>,
+    ) -> Result<(), ProjectError> {
         let mut msgs = AHashMap::with_capacity(self.partitions);
         let mut offsets = AHashMap::with_capacity(self.capacity);
         let mut last_flush = Instant::now();
+        let mut interval = tokio::time::interval(Duration::from_millis(1));
         let mut count: usize = 0;
-        let cgm = self
-            .tc
-            .group_metadata()
-            .ok_or(ProjectError::MetadataError)?;
-        let ap = self.ap.take().ok_or(ProjectError::ProducerNotFound)?;
         info!("成功初始化投影者事务");
 
+        let notified = notify.notified();
+        tokio::pin!(notified);
+        ready.notify_one();
         loop {
-            if super::EXIT.load(Ordering::SeqCst) {
-                if !msgs.is_empty() {
-                    process_batch(&ap, &cgm, &mut msgs, &mut offsets, "优雅退出")?;
-                }
-                break Ok(());
-            }
-
-            if !msgs.is_empty() && last_flush.elapsed() > Duration::from_millis(self.interval) {
-                process_batch(&ap, &cgm, &mut msgs, &mut offsets, "触及提交间隔阈值")?;
-                last_flush = Instant::now();
-                count = 0;
-            }
-
-            match self.tc.poll(Duration::from_millis(100)) {
-                Some(Ok(msg)) => match process_message(&msg) {
-                    Ok((agg_id, payload, res)) if res == UniResponse::Success => {
-                        let agg_type = msg.topic().to_string();
-                        let mut topic = String::with_capacity(agg_type.len() + 37);
-                        topic.push_str(&agg_type);
-                        topic.push_str("-");
-                        topic.push_str(&agg_id.to_string());
-                        let partition = msg.partition();
-                        let offset = msg.offset();
-
-                        match msgs.get_mut(&topic) {
-                            Some(payloads) => payloads.push(payload),
-                            None => {
-                                if msgs.len() == self.partitions {
-                                    process_batch(
-                                        &ap,
-                                        &cgm,
-                                        &mut msgs,
-                                        &mut offsets,
-                                        "触及分区数阈值",
-                                    )?;
-                                    last_flush = Instant::now();
-                                    count = 0;
-                                }
-                                msgs.insert(topic, vec![payload]);
-                            }
-                        }
-
-                        let key = (agg_type, partition);
-                        match offsets.get_mut(&key) {
-                            Some(max_offset) => *max_offset = offset,
-                            None => {
-                                offsets.insert(key, offset);
-                            }
-                        }
-
-                        count += 1;
-                        if count == self.capacity {
-                            process_batch(&ap, &cgm, &mut msgs, &mut offsets, "触及提交计数阈值")?;
-                            last_flush = Instant::now();
-                            count = 0;
-                        }
+            tokio::select! {
+                biased;
+                _ = &mut notified => {
+                    info!("收到关闭信号，开始优雅退出");
+                    if !msgs.is_empty() {
+                        process_batch(ap, tc, &mut msgs, &mut offsets, "优雅退出").await?;
                     }
-                    Ok(_) => continue,
-                    Err(e) => break Err(ProjectError::UniError(e)),
-                },
-                Some(Err(e)) => break Err(ProjectError::KafkaError(e)),
-                None => continue,
+                    break Ok(());
+                }
+                _ = interval.tick() => {
+                    if !msgs.is_empty() && last_flush.elapsed() > Duration::from_millis(self.interval) {
+                        process_batch(ap, tc, &mut msgs, &mut offsets, "触及提交间隔阈值").await?;
+                        last_flush = Instant::now();
+                        count = 0;
+                    }
+                }
+                data = tc.recv() => match data {
+                    Ok(msg) => match process_message(&msg) {
+                        Ok((agg_id, payload, res)) if res == UniResponse::Success => {
+                            let agg_type = msg.topic().to_string();
+                            let mut topic = String::with_capacity(agg_type.len() + 37);
+                            topic.push_str(&agg_type);
+                            topic.push_str("-");
+                            topic.push_str(&agg_id.to_string());
+                            let partition = msg.partition();
+                            let offset = msg.offset();
+
+                            match msgs.get_mut(&topic) {
+                                Some(payloads) => payloads.push(payload),
+                                None => {
+                                    if msgs.len() == self.partitions {
+                                        process_batch(ap, tc, &mut msgs, &mut offsets, "触及分区数阈值").await?;
+                                        last_flush = Instant::now();
+                                        count = 0;
+                                    }
+                                    msgs.insert(topic, vec![payload]);
+                                }
+                            }
+
+                            let key = (agg_type, partition);
+                            match offsets.get_mut(&key) {
+                                Some(max_offset) => *max_offset = offset,
+                                None => {
+                                    offsets.insert(key, offset);
+                                }
+                            }
+
+                            count += 1;
+                            if count == self.capacity {
+                                process_batch(ap, tc, &mut msgs, &mut offsets, "触及提交计数阈值").await?;
+                                last_flush = Instant::now();
+                                count = 0;
+                            }
+                        }
+                        Ok(_) => continue,
+                        Err(e) => break Err(ProjectError::UniError(e)),
+                    }
+                    Err(e) => break Err(ProjectError::KafkaError(e)),
+                }
             }
         }
     }
 }
 
-fn process_batch(
-    ap: &ThreadedProducer<DefaultProducerContext>,
-    cgm: &ConsumerGroupMetadata,
+async fn process_batch(
+    ap: &FutureProducer,
+    tc: &StreamConsumer,
     msgs: &mut AHashMap<String, Vec<Vec<u8>>>,
     offsets: &mut AHashMap<(String, i32), i64>,
     reason: &str,
-) -> Result<(), KafkaError> {
+) -> Result<(), ProjectError> {
     info!("{reason}，提交批量投影");
+    let cgm = tc.group_metadata().ok_or(ProjectError::MetadataError)?;
     let msg_vec: Vec<(String, Vec<Vec<u8>>)> = msgs.drain().collect();
     let offset_vec: Vec<((String, i32), i64)> = offsets.drain().collect();
+    let mut delivery_futures = Vec::with_capacity(msg_vec.len());
 
     ap.begin_transaction()?;
 
     for (topic, payloads) in msg_vec {
         for payload in payloads {
-            let record: BaseRecord<'_, (), Vec<u8>> = BaseRecord::to(&topic).payload(&payload);
-            if let Err(e) = ap.send(record).map_err(|(e, _)| e) {
+            let record: FutureRecord<'_, (), Vec<u8>> = FutureRecord::to(&topic).payload(&payload);
+            match ap.send_result(record) {
+                Ok(delevery_future) => {
+                    delivery_futures.push(delevery_future);
+                }
+                Err((e, _)) => {
+                    ap.abort_transaction(Duration::from_secs(30))?;
+                    return Err(e.into());
+                }
+            }
+        }
+    }
+
+    for fut in delivery_futures {
+        match fut.await {
+            Ok(Ok(Delivery {
+                partition,
+                offset,
+                timestamp: _,
+            })) => {
+                debug!("转存的事件写到分区 {partition} 偏移 {offset}")
+            }
+            Ok(Err((e, _))) => {
+                debug!("转存事件出错：{e}");
                 ap.abort_transaction(Duration::from_secs(30))?;
-                return Err(e);
+                return Err(e.into());
+            }
+            Err(_) => {
+                debug!("转存操作取消");
+                ap.abort_transaction(Duration::from_secs(30))?;
+                return Err(KafkaError::Canceled.into());
             }
         }
     }
@@ -191,14 +169,15 @@ fn process_batch(
     for ((topic, partition), offset) in offset_vec {
         offsets.add_partition_offset(&topic, partition, rdkafka::Offset::Offset(offset + 1))?;
     }
-    if let Err(e) = ap.send_offsets_to_transaction(&offsets, cgm, Duration::from_secs(30)) {
+    if let Err(e) = ap.send_offsets_to_transaction(&offsets, &cgm, Duration::from_secs(30)) {
         ap.abort_transaction(Duration::from_secs(30))?;
-        return Err(e);
+        return Err(e.into());
     }
 
+    debug!("提交事务");
     if let Err(e) = ap.commit_transaction(Duration::from_secs(30)) {
         ap.abort_transaction(Duration::from_secs(30))?;
-        return Err(e);
+        return Err(e.into());
     }
 
     info!("完成批量投影");
@@ -208,7 +187,7 @@ fn process_batch(
 fn process_message(msg: &BorrowedMessage<'_>) -> Result<(Uuid, Vec<u8>, UniResponse), UniError> {
     let key = msg.key().ok_or("消息键不存在")?;
     let agg_id = Uuid::from_slice(key).map_err(|e| UniError::MsgError(e.to_string()))?;
-    debug!("提取聚合Id：{agg_id}");
+    debug!("提取聚合Id：{agg_id} , 偏移：{}", msg.offset());
 
     let payload = msg.payload().ok_or("err")?.to_vec();
     let headers = msg.headers().ok_or("消息头不存在")?;
