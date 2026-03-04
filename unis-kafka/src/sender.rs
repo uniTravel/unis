@@ -10,19 +10,23 @@ pub use app::context;
 #[cfg(any(test, feature = "test-utils"))]
 pub use app::test_context;
 pub use core::Sender;
+use std::sync::LazyLock;
 pub use unis::domain::Request;
 pub use unis::{JsonFormat, RkyvFormat, UniCommand, UniKey, UniResponse};
 
-use uuid::Uuid;
+use crate::config::SenderConfig;
+use unis::domain::Config;
+
+static SENDER_CONFIG: LazyLock<SenderConfig> = LazyLock::new(|| SenderConfig::get());
 
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
-pub fn create(path: &str, op: &str, com_id: Uuid) -> String {
+pub fn create(path: &str, op: &str, com_id: uuid::Uuid) -> String {
     format!("{path}/{op}/{com_id}")
 }
 
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
-pub fn change(path: &str, op: &str, agg_id: Uuid, com_id: Uuid) -> String {
+pub fn change(path: &str, op: &str, agg_id: uuid::Uuid, com_id: uuid::Uuid) -> String {
     format!("{path}/{op}/{agg_id}/{com_id}")
 }

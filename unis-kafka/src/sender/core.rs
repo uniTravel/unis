@@ -1,4 +1,4 @@
-use crate::config::SenderConfig;
+use super::SENDER_CONFIG;
 use ahash::AHashMap;
 use rdkafka::{
     ClientConfig, Message,
@@ -24,12 +24,10 @@ use tracing::{Span, debug, error, info, info_span, instrument};
 use unis::{
     UniResponse,
     config::SendConfig,
-    domain::{Aggregate, CommandEnum, Config, EventEnum, Request},
+    domain::{Aggregate, CommandEnum, EventEnum, Request},
     errors::UniError,
 };
 use uuid::Uuid;
-
-static SENDER_CONFIG: LazyLock<SenderConfig> = LazyLock::new(|| SenderConfig::get());
 
 static SHARED_CP: LazyLock<Arc<FutureProducer>> = LazyLock::new(|| {
     let mut config = ClientConfig::new();

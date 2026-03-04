@@ -7,7 +7,6 @@ use unis_kafka::projector::{self, Aggregate};
 async fn main() {
     let (non_blocking, _guard) = non_blocking(std::io::stdout());
     fmt()
-        .with_max_level(tracing::Level::DEBUG)
         .with_writer(non_blocking)
         .with_target(false)
         .pretty()

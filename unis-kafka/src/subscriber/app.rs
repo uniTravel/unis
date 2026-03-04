@@ -1,5 +1,5 @@
 use super::{SUBSCRIBER_CONFIG, TopicTask};
-use crate::{Context, config::load_bootstrap, subscriber::core::Subscriber};
+use crate::{Context, subscriber::core::Subscriber};
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
@@ -19,13 +19,11 @@ use tokio::{
     time::{Duration, Instant},
 };
 use tracing::{debug, debug_span, error, info};
-use unis::{config::build_config, domain::CommandEnum};
+use unis::domain::CommandEnum;
 
 static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
-    let config = build_config();
-    let bootstrap = load_bootstrap(&config);
     ClientConfig::new()
-        .set("bootstrap.servers", bootstrap)
+        .set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap)
         .create()
         .expect("管理客户端创建失败")
 });

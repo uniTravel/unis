@@ -17,7 +17,7 @@ async fn write_with_agg_topic(#[future(awt)] _init: (), #[future(awt)] context: 
 
     let agg_id = Uuid::new_v4();
     let com_id = Uuid::new_v4();
-    let result = stream.write(agg_type, agg_id, com_id, u64::MAX, &[]).await;
+    let result = stream.write(agg_type, agg_id, com_id, 0, &[]).await;
 
     assert!(result.is_ok());
     assert!(is_agg_topic_exist(agg_type, agg_id).await);
@@ -32,7 +32,7 @@ async fn write_without_agg_topic(#[future(awt)] _init: (), #[future(awt)] contex
 
     let agg_id = Uuid::new_v4();
     let com_id = Uuid::new_v4();
-    let result = stream.write(agg_type, agg_id, com_id, 0, &[]).await;
+    let result = stream.write(agg_type, agg_id, com_id, 1, &[]).await;
 
     assert!(result.is_ok());
     context.teardown().await;

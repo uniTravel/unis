@@ -1,113 +1,150 @@
-use super::ProjectError;
+use super::{PROJECTOR_CONFIG, ProjectError};
 use ahash::AHashMap;
 use rdkafka::{
-    Message, TopicPartitionList,
+    ClientConfig, Message, TopicPartitionList,
     consumer::{Consumer, StreamConsumer},
     error::KafkaError,
     message::{BorrowedMessage, Headers},
     producer::{FutureProducer, FutureRecord, Producer, future_producer::Delivery},
 };
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
+use std::sync::Arc;
+use tokio::{
+    sync::Notify,
+    time::{Duration, Instant, sleep},
 };
-use tokio::sync::Notify;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 use unis::{UniResponse, errors::UniError};
 use uuid::Uuid;
 
-pub(super) struct Projector {
-    capacity: usize,
-    partitions: usize,
-    interval: u64,
-}
-
-impl Projector {
-    pub(super) fn new() -> Self {
-        Self {
-            capacity: 100,
-            partitions: 10,
-            interval: 50,
-        }
+fn create_producer() -> Result<FutureProducer, KafkaError> {
+    let transaction_id = format!("{}-{}", PROJECTOR_CONFIG.name, PROJECTOR_CONFIG.hostname);
+    let mut config = ClientConfig::new();
+    for (key, value) in &PROJECTOR_CONFIG.pp {
+        config.set(key, value);
     }
 
-    pub async fn process(
-        &self,
-        ap: &FutureProducer,
-        tc: &StreamConsumer,
-        ready: Arc<Notify>,
-        notify: Arc<Notify>,
-    ) -> Result<(), ProjectError> {
-        let mut msgs = AHashMap::with_capacity(self.partitions);
-        let mut offsets = AHashMap::with_capacity(self.capacity);
-        let mut last_flush = Instant::now();
-        let mut interval = tokio::time::interval(Duration::from_millis(1));
-        let mut count: usize = 0;
-        info!("成功初始化投影者事务");
+    let ap: FutureProducer = config
+        .set("bootstrap.servers", &PROJECTOR_CONFIG.bootstrap)
+        .set("transactional.id", transaction_id)
+        .create()?;
+    ap.init_transactions(std::time::Duration::from_secs(30))?;
+    Ok(ap)
+}
 
-        let notified = notify.notified();
-        tokio::pin!(notified);
-        ready.notify_one();
-        loop {
-            tokio::select! {
-                biased;
-                _ = &mut notified => {
-                    info!("收到关闭信号，开始优雅退出");
-                    if !msgs.is_empty() {
-                        process_batch(ap, tc, &mut msgs, &mut offsets, "优雅退出").await?;
-                    }
-                    break Ok(());
+fn create_consumer() -> Result<StreamConsumer, KafkaError> {
+    let mut config = ClientConfig::new();
+    for (key, value) in &PROJECTOR_CONFIG.pc {
+        config.set(key, value);
+    }
+    config
+        .set("bootstrap.servers", &PROJECTOR_CONFIG.bootstrap)
+        .set("group.id", &PROJECTOR_CONFIG.name)
+        .create()
+}
+
+pub async fn launch(topics: Vec<&'static str>, ready: Arc<Notify>, notify: Arc<Notify>) {
+    let mut count = 0;
+    let tc = create_consumer().expect("创建投影消费者失败");
+    let mut ap = create_producer().expect("初创投影生产者失败");
+    loop {
+        match process(&topics, &ap, &tc, Arc::clone(&ready), Arc::clone(&notify)).await {
+            Ok(()) => break,
+            Err(ProjectError::UniError(e)) => {
+                error!("投影处理错误：{:?}", e);
+                break;
+            }
+            Err(ProjectError::MetadataError) => error!("获取消费组元数据失败"),
+            Err(ProjectError::KafkaError(e)) => {
+                error!("投影处理错误：{:?}", e);
+                ap = create_producer().expect("重建投影生产者失败");
+            }
+        }
+        count += 1;
+        if count == 15 {
+            error!("尝试 {count} 次仍然失败，退出应用！");
+            break;
+        }
+        sleep(Duration::from_secs(PROJECTOR_CONFIG.secs)).await;
+    }
+}
+
+async fn process(
+    topics: &Vec<&'static str>,
+    ap: &FutureProducer,
+    tc: &StreamConsumer,
+    ready: Arc<Notify>,
+    notify: Arc<Notify>,
+) -> Result<(), ProjectError> {
+    tc.subscribe(topics)?;
+    let mut msgs = AHashMap::with_capacity(PROJECTOR_CONFIG.partitions);
+    let mut offsets = AHashMap::with_capacity(PROJECTOR_CONFIG.capacity);
+    let mut last_flush = Instant::now();
+    let mut interval = tokio::time::interval(Duration::from_millis(1));
+    let mut count: usize = 0;
+    info!("成功初始化投影者事务");
+
+    let notified = notify.notified();
+    tokio::pin!(notified);
+    ready.notify_one();
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut notified => {
+                info!("收到关闭信号，开始优雅退出");
+                if !msgs.is_empty() {
+                    process_batch(ap, tc, &mut msgs, &mut offsets, "优雅退出").await?;
                 }
-                _ = interval.tick() => {
-                    if !msgs.is_empty() && last_flush.elapsed() > Duration::from_millis(self.interval) {
-                        process_batch(ap, tc, &mut msgs, &mut offsets, "触及提交间隔阈值").await?;
-                        last_flush = Instant::now();
-                        count = 0;
-                    }
+                break Ok(());
+            }
+            _ = interval.tick() => {
+                if !msgs.is_empty() && last_flush.elapsed() > Duration::from_millis(PROJECTOR_CONFIG.interval) {
+                    process_batch(ap, tc, &mut msgs, &mut offsets, "触及提交间隔阈值").await?;
+                    last_flush = Instant::now();
+                    count = 0;
                 }
-                data = tc.recv() => match data {
-                    Ok(msg) => match process_message(&msg) {
-                        Ok((agg_id, payload, res)) if res == UniResponse::Success => {
-                            let agg_type = msg.topic().to_string();
-                            let mut topic = String::with_capacity(agg_type.len() + 37);
-                            topic.push_str(&agg_type);
-                            topic.push_str("-");
-                            topic.push_str(&agg_id.to_string());
-                            let partition = msg.partition();
-                            let offset = msg.offset();
+            }
+            data = tc.recv() => match data {
+                Ok(msg) => match process_message(&msg) {
+                    Ok((agg_id, payload, res)) if res == UniResponse::Success => {
+                        let agg_type = msg.topic().to_string();
+                        let mut topic = String::with_capacity(agg_type.len() + 37);
+                        topic.push_str(&agg_type);
+                        topic.push_str("-");
+                        topic.push_str(&agg_id.to_string());
+                        let partition = msg.partition();
+                        let offset = msg.offset();
 
-                            match msgs.get_mut(&topic) {
-                                Some(payloads) => payloads.push(payload),
-                                None => {
-                                    if msgs.len() == self.partitions {
-                                        process_batch(ap, tc, &mut msgs, &mut offsets, "触及分区数阈值").await?;
-                                        last_flush = Instant::now();
-                                        count = 0;
-                                    }
-                                    msgs.insert(topic, vec![payload]);
+                        match msgs.get_mut(&topic) {
+                            Some(payloads) => payloads.push(payload),
+                            None => {
+                                if msgs.len() == PROJECTOR_CONFIG.partitions {
+                                    process_batch(ap, tc, &mut msgs, &mut offsets, "触及分区数阈值").await?;
+                                    last_flush = Instant::now();
+                                    count = 0;
                                 }
-                            }
-
-                            let key = (agg_type, partition);
-                            match offsets.get_mut(&key) {
-                                Some(max_offset) => *max_offset = offset,
-                                None => {
-                                    offsets.insert(key, offset);
-                                }
-                            }
-
-                            count += 1;
-                            if count == self.capacity {
-                                process_batch(ap, tc, &mut msgs, &mut offsets, "触及提交计数阈值").await?;
-                                last_flush = Instant::now();
-                                count = 0;
+                                msgs.insert(topic, vec![payload]);
                             }
                         }
-                        Ok(_) => continue,
-                        Err(e) => break Err(ProjectError::UniError(e)),
+
+                        let key = (agg_type, partition);
+                        match offsets.get_mut(&key) {
+                            Some(max_offset) => *max_offset = offset,
+                            None => {
+                                offsets.insert(key, offset);
+                            }
+                        }
+
+                        count += 1;
+                        if count == PROJECTOR_CONFIG.capacity {
+                            process_batch(ap, tc, &mut msgs, &mut offsets, "触及提交计数阈值").await?;
+                            last_flush = Instant::now();
+                            count = 0;
+                        }
                     }
-                    Err(e) => break Err(ProjectError::KafkaError(e)),
+                    Ok(_) => continue,
+                    Err(e) => break Err(ProjectError::UniError(e)),
                 }
+                Err(e) => break Err(ProjectError::KafkaError(e)),
             }
         }
     }
@@ -153,12 +190,10 @@ async fn process_batch(
                 debug!("转存的事件写到分区 {partition} 偏移 {offset}")
             }
             Ok(Err((e, _))) => {
-                debug!("转存事件出错：{e}");
                 ap.abort_transaction(Duration::from_secs(30))?;
                 return Err(e.into());
             }
             Err(_) => {
-                debug!("转存操作取消");
                 ap.abort_transaction(Duration::from_secs(30))?;
                 return Err(KafkaError::Canceled.into());
             }

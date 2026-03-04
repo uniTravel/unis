@@ -10,11 +10,12 @@ pub use app::context;
 pub use app::test_context;
 pub use unis::domain::Aggregate;
 
+use crate::config::ProjectorConfig;
 use std::sync::LazyLock;
 use thiserror::Error;
-use unis::config::build_config;
+use unis::domain::Config;
 
-static CONFIG: LazyLock<config::Config> = LazyLock::new(|| build_config());
+static PROJECTOR_CONFIG: LazyLock<ProjectorConfig> = LazyLock::new(|| ProjectorConfig::get());
 
 #[derive(Debug, Error)]
 enum ProjectError {

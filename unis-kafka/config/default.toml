@@ -19,8 +19,17 @@ sems = 50
 "auto.commit.interval.ms" = "1000"
 "group.protocol" = "consumer"
 
+[pc]
+"enable.auto.commit" = "false"
+"auto.offset.reset" = "earliest"
+"isolation.level" = "read_committed"
+"group.protocol" = "consumer"
+
 [tp]
 "linger.ms" = "1"
 
 [cp]
+"linger.ms" = "1"
+
+[pp]
 "linger.ms" = "1"

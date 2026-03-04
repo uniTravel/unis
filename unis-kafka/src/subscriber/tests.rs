@@ -7,7 +7,6 @@ use super::{
     reader,
     stream::Writer,
 };
-use crate::config;
 use domain::account;
 use rdkafka::{
     ClientConfig,
@@ -25,17 +24,14 @@ use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
 use unis::{
     UniResponse,
-    config::build_config,
     domain::{Aggregate, Stream},
 };
 use unis_utils::kube::{HelmRelease, KubeCluster};
 use uuid::Uuid;
 
 static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
-    let config = build_config();
-    let bootstrap = config::load_bootstrap(&config);
     ClientConfig::new()
-        .set("bootstrap.servers", bootstrap)
+        .set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap)
         .create()
         .expect("管理客户端创建失败")
 });
