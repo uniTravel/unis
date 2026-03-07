@@ -8,7 +8,8 @@ use domain::{account::AccountCommand, transaction::TransactionCommand};
 use std::sync::Arc;
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
-use unis_kafka::sender;
+use unis::app;
+use unis_kafka::sender::KafkaSender;
 
 #[tokio::main]
 async fn main() {
@@ -19,9 +20,9 @@ async fn main() {
         .pretty()
         .init();
 
-    let ctx = sender::context().await;
-    let svc_account = Arc::new(ctx.setup::<AccountCommand>().await);
-    let svc_transaction = Arc::new(ctx.setup::<TransactionCommand>().await);
+    let ctx = app::context().await;
+    let svc_account = Arc::new(ctx.setup::<_, KafkaSender<AccountCommand>>().await);
+    let svc_transaction = Arc::new(ctx.setup::<_, KafkaSender<TransactionCommand>>().await);
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .merge(routes::account_routes().with_state(svc_account))

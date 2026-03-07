@@ -2,7 +2,7 @@ use super::*;
 
 #[rstest]
 #[tokio::test]
-async fn create_account(#[future(awt)] app: Router, #[future(awt)] ctx: &'static App) {
+async fn create_account(#[future(awt)] app: Router, ctx: &'static Context) {
     let com = CreateAccount {
         code: "123456".to_string(),
         owner: "张三".to_string(),
@@ -28,7 +28,7 @@ async fn create_account(#[future(awt)] app: Router, #[future(awt)] ctx: &'static
 
 #[rstest]
 #[tokio::test]
-async fn verify_account(#[future(awt)] app: Router, #[future(awt)] ctx: &'static App) {
+async fn verify_account(#[future(awt)] app: Router, ctx: &'static Context) {
     let com = VerifyAccount {
         verified_by: "李四".to_string(),
         conclusion: true,

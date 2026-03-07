@@ -1,10 +1,7 @@
 use super::*;
 use crate::handlers::account::*;
 use axum::routing::post;
-use unis_kafka::{
-    route_builder,
-    sender::{JsonFormat, RkyvFormat},
-};
+use unis::{JsonFormat, RkyvFormat, route_builder};
 
 macro_rules! account_routes {
     ($format:ty) => {
@@ -12,10 +9,10 @@ macro_rules! account_routes {
     };
 }
 
-pub fn rkyv_routes() -> Router<Arc<Sender<AccountCommand>>> {
+pub fn rkyv_routes() -> Router<Arc<KafkaSender<AccountCommand>>> {
     account_routes!(RkyvFormat)
 }
 
-pub fn json_routes() -> Router<Arc<Sender<AccountCommand>>> {
+pub fn json_routes() -> Router<Arc<KafkaSender<AccountCommand>>> {
     account_routes!(JsonFormat)
 }

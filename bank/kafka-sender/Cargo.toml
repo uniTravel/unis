@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+unis = { workspace = true, features = ["sender"] }
 unis-kafka = { workspace = true, features = ["sender"] }
 domain = { path = "../domain" }
 
@@ -19,7 +20,8 @@ tracing-subscriber.workspace = true
 tracing-appender.workspace = true
 
 [dev-dependencies]
-unis-kafka = { workspace = true, features = ["test-utils"] }
+unis = { workspace = true, features = ["test-utils"] }
+unis-kafka = { workspace = true }
 
 rstest.workspace = true
 uuid.workspace = true

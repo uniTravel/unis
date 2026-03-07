@@ -3,11 +3,12 @@
 //!
 
 use crate::{
-    Com, EMPTY_BYTES,
+    Com,
     config::SubscribeConfig,
-    domain::{Aggregate, CommandEnum, EventEnum, Load, Restore, Stream},
+    domain::{Aggregate, CommandEnum, EventEnum, Load},
     errors::UniError,
     response::UniResponse,
+    subscriber::{Restore, Stream},
 };
 use ahash::{AHashMap, AHashSet};
 use rkyv::{
@@ -26,6 +27,8 @@ use tokio::{
 };
 use tracing::{Span, debug, error, field, info, instrument, warn};
 use uuid::Uuid;
+
+const EMPTY_BYTES: &[u8] = &[];
 
 impl<F, Fut> Restore for F
 where
@@ -70,7 +73,7 @@ impl<A, C, E> Aggregator<A, C, E>
 where
     A: Aggregate,
     C: CommandEnum<A = A, E = E>,
-    <C as Archive>::Archived: Sync + Deserialize<C, Strategy<Pool, Error>>,
+    <C as Archive>::Archived: Deserialize<C, Strategy<Pool, Error>>,
     E: EventEnum<A = A>,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {

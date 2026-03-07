@@ -9,10 +9,11 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-subscriber = []
-sender = []
+subscriber = ["unis/subscriber"]
+sender = ["unis/sender"]
 projector = []
-test-utils = []
+test-utils = ["unis/test-utils"]
+full = ["subscriber", "sender", "projector", "test-utils"]
 
 [dependencies]
 unis.workspace = true
@@ -33,12 +34,8 @@ config.workspace = true
 
 [dev-dependencies]
 domain = { path = "../bank/domain" }
-unis.workspace = true
+unis = { workspace = true, features = ["full"] }
+unis-kafka = { workspace = true, features = ["full"] }
 unis-utils.workspace = true
-unis-kafka = { workspace = true, features = [
-    "subscriber",
-    "sender",
-    "projector",
-    "test-utils",
-] }
+
 rstest.workspace = true

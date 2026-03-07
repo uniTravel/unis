@@ -14,7 +14,10 @@ use tower::ServiceExt;
 use tracing::{Level, error};
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
-use unis_kafka::sender::{App, change, create, test_context};
+use unis::{
+    app::{self, Context},
+    sender::{change, create},
+};
 use uuid::Uuid;
 
 #[fixture]
@@ -43,6 +46,6 @@ fn setup() {
 }
 
 #[fixture]
-async fn ctx() -> &'static App {
-    test_context().await
+fn ctx() -> &'static Context {
+    app::test_context()
 }

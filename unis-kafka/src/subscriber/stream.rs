@@ -1,13 +1,12 @@
-use super::{SUBSCRIBER_CONFIG, TopicTask};
+use super::{SUBSCRIBER_CONFIG, TopicTask, topic::topic_tx};
 use rdkafka::{
     ClientConfig,
     message::{Header, OwnedHeaders},
     producer::{FutureProducer, FutureRecord, future_producer::Delivery},
 };
 use std::sync::{Arc, LazyLock};
-use tokio::sync::mpsc;
 use tracing::{debug, error, instrument};
-use unis::{config::SubscribeConfig, domain, errors::UniError};
+use unis::{config::SubscribeConfig, errors::UniError, subscriber};
 use uuid::Uuid;
 
 static SHARED_TP: LazyLock<Arc<FutureProducer>> = LazyLock::new(|| {
@@ -26,21 +25,20 @@ static TP_CONFIG: LazyLock<ClientConfig> = LazyLock::new(|| {
 });
 
 pub(crate) struct Writer {
-    topic_tx: mpsc::UnboundedSender<TopicTask>,
     producer: Arc<FutureProducer>,
 }
 
 impl Writer {
-    pub fn new(cfg: &SubscribeConfig, topic_tx: mpsc::UnboundedSender<TopicTask>) -> Self {
+    pub fn new(cfg: &SubscribeConfig) -> Self {
         let producer = match cfg.hotspot {
             true => Arc::new(TP_CONFIG.create().expect("聚合类型生产者创建失败")),
             false => Arc::clone(&SHARED_TP),
         };
-        Self { topic_tx, producer }
+        Self { producer }
     }
 }
 
-impl domain::Stream for Writer {
+impl subscriber::Stream for Writer {
     #[instrument(name = "stream_write", level = "debug", skip(self, revision, evt_data))]
     async fn write(
         &self,
@@ -52,7 +50,7 @@ impl domain::Stream for Writer {
     ) -> Result<(), UniError> {
         if revision == 0 {
             debug!("创建聚合主题");
-            if let Err(e) = self.topic_tx.send(TopicTask { agg_type, agg_id }) {
+            if let Err(e) = topic_tx().await.send(TopicTask { agg_type, agg_id }) {
                 error!(agg_type, %agg_id, "发送聚合主题失败：{e}");
             }
         }

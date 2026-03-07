@@ -13,10 +13,10 @@ async fn main() {
         .init();
 
     let ctx = projector::context().await;
-    ctx.launch(vec![
-        account::Account::topic(),
-        transaction::Transaction::topic(),
-    ])
+    projector::launch(
+        ctx,
+        vec![account::Account::topic(), transaction::Transaction::topic()],
+    )
     .await;
 
     ctx.all_done().await;

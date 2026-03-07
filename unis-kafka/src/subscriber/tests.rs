@@ -1,12 +1,7 @@
 mod restore_test;
 mod stream_test;
 
-use super::{
-    SUBSCRIBER_CONFIG,
-    app::{self, App},
-    reader,
-    stream::Writer,
-};
+use super::{SUBSCRIBER_CONFIG, reader, stream::Writer};
 use domain::account;
 use rdkafka::{
     ClientConfig,
@@ -22,10 +17,7 @@ use tokio::{
 use tracing::{Level, info, warn};
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
-use unis::{
-    UniResponse,
-    domain::{Aggregate, Stream},
-};
+use unis::{UniResponse, app::Context, domain::Aggregate, subscriber::Stream};
 use unis_utils::kube::{HelmRelease, KubeCluster};
 use uuid::Uuid;
 
@@ -73,15 +65,15 @@ async fn internal_setup() {
 }
 
 #[fixture]
-async fn context() -> &'static App {
-    app::test_context().await
+fn ctx() -> &'static Context {
+    unis::app::test_context()
 }
 
-fn stream(context: &'static App) -> Writer {
+fn stream() -> Writer {
     let agg_type = account::Account::topic();
     let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
     let cfg = SUBSCRIBER_CONFIG.subscriber.get(cfg_name);
-    Writer::new(&cfg, context.topic_tx())
+    Writer::new(&cfg)
 }
 
 async fn is_topic_exist(name: &str) -> bool {

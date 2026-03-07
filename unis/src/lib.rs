@@ -7,10 +7,16 @@
 mod request;
 mod response;
 
+#[cfg(feature = "subscriber")]
 pub mod aggregator;
+pub mod app;
 pub mod config;
 pub mod domain;
 pub mod errors;
+#[cfg(feature = "sender")]
+pub mod sender;
+#[cfg(feature = "subscriber")]
+pub mod subscriber;
 
 /// # **unis** 宏
 pub mod macros {
@@ -28,13 +34,11 @@ use rkyv::{
 };
 use uuid::Uuid;
 
-const EMPTY_BYTES: &[u8] = &[];
-
 /// 命令消息结构
 pub struct Com<C>
 where
     C: CommandEnum,
-    <C as Archive>::Archived: Sync + Deserialize<C, Strategy<Pool, Error>>,
+    <C as Archive>::Archived: Deserialize<C, Strategy<Pool, Error>>,
 {
     /// 聚合 Id
     pub agg_id: Uuid,

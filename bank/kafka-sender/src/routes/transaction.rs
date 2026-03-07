@@ -1,10 +1,7 @@
 use super::*;
 use crate::handlers::transaction::*;
 use axum::routing::post;
-use unis_kafka::{
-    route_builder,
-    sender::{JsonFormat, RkyvFormat},
-};
+use unis::{JsonFormat, RkyvFormat, route_builder};
 
 macro_rules! transaction_routes {
     ($format:ty) => {
@@ -25,10 +22,10 @@ macro_rules! transaction_routes {
     };
 }
 
-pub fn rkyv_routes() -> Router<Arc<Sender<TransactionCommand>>> {
+pub fn rkyv_routes() -> Router<Arc<KafkaSender<TransactionCommand>>> {
     transaction_routes!(RkyvFormat)
 }
 
-pub fn json_routes() -> Router<Arc<Sender<TransactionCommand>>> {
+pub fn json_routes() -> Router<Arc<KafkaSender<TransactionCommand>>> {
     transaction_routes!(JsonFormat)
 }

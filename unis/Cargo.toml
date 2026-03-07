@@ -9,7 +9,10 @@ license.workspace = true
 repository.workspace = true
 
 [features]
+subscriber = []
+sender = []
 test-utils = []
+full = ["subscriber", "sender", "test-utils"]
 
 [dependencies]
 unis-macros.workspace = true

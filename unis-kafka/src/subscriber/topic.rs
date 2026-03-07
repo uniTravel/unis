@@ -1,25 +1,15 @@
 use super::{SUBSCRIBER_CONFIG, TopicTask};
-use crate::{Context, subscriber::core::Subscriber};
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
     client::DefaultClientContext,
 };
-use rkyv::{
-    Archive, Deserialize,
-    de::Pool,
-    rancor::{Error, Strategy},
-};
-use std::{
-    ops::Deref,
-    sync::{Arc, LazyLock},
-};
+use std::sync::{Arc, LazyLock};
 use tokio::{
     sync::{Notify, OnceCell, mpsc},
     time::{Duration, Instant},
 };
 use tracing::{debug, debug_span, error, info};
-use unis::domain::CommandEnum;
 
 static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
     ClientConfig::new()
@@ -34,71 +24,26 @@ static OPTS: LazyLock<AdminOptions> = LazyLock::new(|| {
         .request_timeout(Some(Duration::from_secs(5)))
 });
 
-static CONTEXT: OnceCell<App> = OnceCell::const_new();
-pub(super) async fn app() -> &'static App {
-    CONTEXT.get_or_init(App::new).await
-}
+static TOPIC_TX: OnceCell<mpsc::UnboundedSender<TopicTask>> = OnceCell::const_new();
+pub(super) async fn topic_tx() -> &'static mpsc::UnboundedSender<TopicTask> {
+    TOPIC_TX
+        .get_or_init(|| async {
+            LazyLock::force(&ADMIN);
+            LazyLock::force(&OPTS);
+            let (topic_tx, topic_rx) = mpsc::unbounded_channel::<TopicTask>();
 
-/// 订阅者上下文
-pub async fn context() -> &'static App {
-    tokio::spawn(async move {
-        crate::shutdown_signal().await;
-        app().await.shutdown().await;
-    });
-    app().await
-}
+            #[cfg(any(test, feature = "test-utils"))]
+            let ctx = unis::app::test_context();
 
-#[doc(hidden)]
-#[cfg(any(test, feature = "test-utils"))]
-pub async fn test_context() -> &'static App {
-    app().await
-}
+            #[cfg(not(any(test, feature = "test-utils")))]
+            let ctx = unis::app::context().await;
 
-/// 订阅者上下文结构
-pub struct App {
-    topic_tx: mpsc::UnboundedSender<TopicTask>,
-    context: Context,
-}
+            ctx.spawn_notify(move |ready, notify| topic_creator(topic_rx, ready, notify))
+                .await;
 
-impl App {
-    async fn new() -> Self {
-        LazyLock::force(&ADMIN);
-        LazyLock::force(&OPTS);
-        let (topic_tx, topic_rx) = mpsc::unbounded_channel::<TopicTask>();
-        let app = Self {
-            topic_tx,
-            context: Context::new(),
-        };
-        app.spawn_notify(move |ready, notify| topic_creator(topic_rx, ready, notify))
-            .await;
-        app
-    }
-
-    /// 设置特定聚合类型的订阅者
-    pub async fn setup<C>(&self)
-    where
-        C: CommandEnum,
-        <C as Archive>::Archived: Sync + Deserialize<C, Strategy<Pool, Error>>,
-    {
-        if let Err(e) = Subscriber::<C::A, C, C::E>::launch().await {
-            error!("{e}");
-            self.shutdown().await;
-            self.all_done().await;
-            panic!("异常退出订阅者初始设置")
-        }
-    }
-
-    pub(super) fn topic_tx(&self) -> mpsc::UnboundedSender<TopicTask> {
-        self.topic_tx.clone()
-    }
-}
-
-impl Deref for App {
-    type Target = Context;
-
-    fn deref(&self) -> &Self::Target {
-        &self.context
-    }
+            topic_tx
+        })
+        .await
 }
 
 async fn topic_creator(

@@ -22,8 +22,8 @@ async fn restore_without_coms(#[future(awt)] _init: ()) {
 
 #[rstest]
 #[tokio::test]
-async fn restore_with_coms(#[future(awt)] _init: (), #[future(awt)] context: &'static App) {
-    let stream = stream(&context);
+async fn restore_with_coms(#[future(awt)] _init: (), ctx: &'static Context) {
+    let stream = stream();
     let agg_type = account::Account::topic();
     let agg_id = Uuid::new_v4();
     let com_id = Uuid::new_v4();
@@ -33,5 +33,5 @@ async fn restore_with_coms(#[future(awt)] _init: (), #[future(awt)] context: &'s
     let agg_coms = reader::restore(agg_type, 1).await.unwrap();
 
     assert!(agg_coms.len() >= 1);
-    context.teardown().await;
+    ctx.teardown().await;
 }

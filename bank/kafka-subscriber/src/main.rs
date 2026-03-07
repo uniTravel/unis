@@ -1,7 +1,7 @@
-use domain::{account, transaction};
+use domain::{account::AccountCommand, transaction::TransactionCommand};
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
-use unis_kafka::subscriber;
+use unis_kafka::subscriber::{self, KafkaSubscriber};
 
 #[tokio::main]
 async fn main() {
@@ -13,8 +13,8 @@ async fn main() {
         .init();
 
     let ctx = subscriber::context().await;
-    ctx.setup::<account::AccountCommand>().await;
-    ctx.setup::<transaction::TransactionCommand>().await;
+    ctx.launch::<_, KafkaSubscriber<AccountCommand>>().await;
+    ctx.launch::<_, KafkaSubscriber<TransactionCommand>>().await;
 
     ctx.all_done().await;
 }
