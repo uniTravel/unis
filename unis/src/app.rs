@@ -2,14 +2,18 @@
 #![allow(unused_imports)]
 
 use crate::domain::CommandEnum;
+use ahash::AHashSet;
 use rkyv::{
     Archive, Deserialize,
     de::Pool,
     rancor::{Error, Strategy},
 };
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    any::TypeId,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use tokio::sync::OnceCell;
 use tokio::{
@@ -48,6 +52,10 @@ pub struct Context {
     initiated: AtomicBool,
     tasks: Mutex<JoinSet<()>>,
     notify: Arc<Notify>,
+    #[cfg(feature = "subscriber")]
+    subscriber_types: Mutex<AHashSet<TypeId>>,
+    #[cfg(feature = "sender")]
+    sender_types: Mutex<AHashSet<TypeId>>,
 }
 
 impl Context {
@@ -56,10 +64,14 @@ impl Context {
             initiated: AtomicBool::new(false),
             tasks: Mutex::new(JoinSet::new()),
             notify: Arc::new(Notify::new()),
+            #[cfg(feature = "subscriber")]
+            subscriber_types: Mutex::new(AHashSet::new()),
+            #[cfg(feature = "sender")]
+            sender_types: Mutex::new(AHashSet::new()),
         }
     }
 
-    /// 设置特定聚合类型的发送者
+    /// 初始设置特定聚合类型的发送者
     #[cfg(feature = "sender")]
     pub async fn setup<C, S>(&'static self) -> S
     where
@@ -68,14 +80,23 @@ impl Context {
         <C::E as Archive>::Archived: rkyv::Deserialize<C::E, Strategy<Pool, Error>>,
         S: crate::sender::Sender<C::A, C, C::E>,
     {
-        match S::new(self).await {
-            Ok(sender) => sender,
-            Err(e) => {
-                error!(e);
-                self.shutdown().await;
-                self.all_done().await;
-                panic!("异常退出发送者初始设置")
+        let mut types = self.sender_types.lock().await;
+        if types.insert(TypeId::of::<C>()) {
+            match S::new(self).await {
+                Ok(sender) => sender,
+                Err(e) => {
+                    error!(e);
+                    self.shutdown().await;
+                    self.all_done().await;
+                    panic!("异常退出发送者初始设置")
+                }
             }
+        } else {
+            let type_name = std::any::type_name::<C>();
+            error!("重复初始设置 {type_name} 的发送者");
+            self.shutdown().await;
+            self.all_done().await;
+            panic!("特定聚合类型的发送者只能初始设置一次");
         }
     }
 
@@ -88,11 +109,20 @@ impl Context {
         <C::E as Archive>::Archived: rkyv::Deserialize<C::E, Strategy<Pool, Error>>,
         S: crate::subscriber::Subscriber<C::A, C, C::E>,
     {
-        if let Err(e) = S::launch(self).await {
-            error!(e);
+        let mut types = self.subscriber_types.lock().await;
+        if types.insert(TypeId::of::<C>()) {
+            if let Err(e) = S::launch(self).await {
+                error!(e);
+                self.shutdown().await;
+                self.all_done().await;
+                panic!("异常退出订阅者初始设置")
+            }
+        } else {
+            let type_name = std::any::type_name::<C>();
+            error!("重复启动 {type_name} 的订阅者");
             self.shutdown().await;
             self.all_done().await;
-            panic!("异常退出订阅者初始设置")
+            panic!("特定聚合类型的订阅者只能启动一次");
         }
     }
 

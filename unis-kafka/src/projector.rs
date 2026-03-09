@@ -18,7 +18,7 @@ use tokio::{
     sync::Notify,
     time::{Duration, Instant, sleep},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use unis::{UniResponse, domain::Config, errors::UniError};
 use uuid::Uuid;
 
@@ -98,7 +98,8 @@ pub async fn launch(ctx: &'static unis::app::Context, topics: Vec<&'static str>)
         })
         .await;
     } else {
-        warn!("重复启动投影，不作任何处理");
+        error!("重复启动投影");
+        panic!("投影只能启动一次");
     }
 }
 
