@@ -63,11 +63,11 @@ fn create_consumer() -> Result<StreamConsumer, KafkaError> {
         .create()
 }
 
-static INIT: AtomicBool = AtomicBool::new(false);
+static INITIATED: AtomicBool = AtomicBool::new(false);
 
 /// 启动投影
 pub async fn launch(ctx: &'static unis::app::Context, topics: Vec<&'static str>) {
-    if INIT
+    if INITIATED
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
         .is_ok()
     {

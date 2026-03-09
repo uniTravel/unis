@@ -25,7 +25,7 @@ static OPTS: LazyLock<AdminOptions> = LazyLock::new(|| {
 });
 
 static TOPIC_TX: OnceCell<mpsc::UnboundedSender<TopicTask>> = OnceCell::const_new();
-pub(super) async fn topic_tx() -> &'static mpsc::UnboundedSender<TopicTask> {
+pub(super) async fn topic_tx() -> mpsc::UnboundedSender<TopicTask> {
     TOPIC_TX
         .get_or_init(|| async {
             LazyLock::force(&ADMIN);
@@ -44,6 +44,7 @@ pub(super) async fn topic_tx() -> &'static mpsc::UnboundedSender<TopicTask> {
             topic_tx
         })
         .await
+        .clone()
 }
 
 async fn topic_creator(

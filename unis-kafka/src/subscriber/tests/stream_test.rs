@@ -12,7 +12,7 @@ async fn init(#[future(awt)] _internal_setup: ()) {
 #[rstest]
 #[tokio::test]
 async fn write_with_agg_topic(#[future(awt)] _init: (), ctx: &'static Context) {
-    let stream = stream();
+    let stream = stream().await;
     let agg_type = account::Account::topic();
 
     let agg_id = Uuid::new_v4();
@@ -27,7 +27,7 @@ async fn write_with_agg_topic(#[future(awt)] _init: (), ctx: &'static Context) {
 #[rstest]
 #[tokio::test]
 async fn write_without_agg_topic(#[future(awt)] _init: (), ctx: &'static Context) {
-    let stream = stream();
+    let stream = stream().await;
     let agg_type = account::Account::topic();
 
     let agg_id = Uuid::new_v4();
@@ -41,7 +41,7 @@ async fn write_without_agg_topic(#[future(awt)] _init: (), ctx: &'static Context
 #[rstest]
 #[tokio::test]
 async fn respond_to_stream(#[future(awt)] _init: (), ctx: &'static Context) {
-    let stream = stream();
+    let stream = stream().await;
     let agg_type = account::Account::topic();
 
     let agg_id = Uuid::new_v4();

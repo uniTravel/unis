@@ -69,11 +69,11 @@ fn ctx() -> &'static Context {
     unis::app::test_context()
 }
 
-fn stream() -> Writer {
+async fn stream() -> Writer {
     let agg_type = account::Account::topic();
     let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
     let cfg = SUBSCRIBER_CONFIG.subscriber.get(cfg_name);
-    Writer::new(&cfg)
+    Writer::new(&cfg).await
 }
 
 async fn is_topic_exist(name: &str) -> bool {

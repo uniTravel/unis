@@ -89,7 +89,7 @@ where
         info!("成功订阅 {topic} 聚合命令流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Com<C>>();
-        let stream = Arc::new(Writer::new(&cfg));
+        let stream = Arc::new(Writer::new(&cfg).await);
         ctx.spawn(move |ready| {
             Aggregator::<A, C, E>::launch(cfg, reader::load, stream, reader::restore, rx, ready)
         })

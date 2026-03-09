@@ -23,7 +23,7 @@ async fn restore_without_coms(#[future(awt)] _init: ()) {
 #[rstest]
 #[tokio::test]
 async fn restore_with_coms(#[future(awt)] _init: (), ctx: &'static Context) {
-    let stream = stream();
+    let stream = stream().await;
     let agg_type = account::Account::topic();
     let agg_id = Uuid::new_v4();
     let com_id = Uuid::new_v4();
