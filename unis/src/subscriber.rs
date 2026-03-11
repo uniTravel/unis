@@ -53,6 +53,6 @@ where
     E: EventEnum<A = A>,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
-    /// 启动订阅者
+    #[doc(hidden)]
     fn launch(ctx: &'static Context) -> impl Future<Output = Result<(), String>>;
 }

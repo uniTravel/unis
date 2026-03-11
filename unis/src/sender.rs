@@ -23,7 +23,7 @@ where
     E: EventEnum<A = A>,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
-    /// 构造发送者
+    #[doc(hidden)]
     fn new(ctx: &'static Context) -> impl Future<Output = Result<Self, String>>;
     /// 获取聚合类型
     fn agg_type(&self) -> &'static str;

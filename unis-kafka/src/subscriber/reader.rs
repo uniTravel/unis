@@ -8,13 +8,13 @@ use rkyv::{
 };
 use std::{sync::LazyLock, time::SystemTime};
 use tracing::{debug, error, instrument};
-use unis::{domain::EventEnum, errors::UniError};
+use unis::{UniResponse, domain::EventEnum, errors::UniError};
 use uuid::Uuid;
 
 static POOL: LazyLock<ConsumerPool> = LazyLock::new(|| ConsumerPool::new());
 
 #[instrument(name = "load_aggregate", level = "debug")]
-pub async fn load<E>(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<E>, UniError>
+pub async fn load<E>(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<(Uuid, E)>, UniError>
 where
     E: EventEnum,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
@@ -46,9 +46,13 @@ where
     loop {
         match consumer.poll(SUBSCRIBER_CONFIG.timeout) {
             Some(Ok(msg)) => {
-                if let Some(payload) = msg.payload() {
-                    msgs.push(E::from_bytes(payload)?);
-                }
+                let payload = msg.payload().ok_or("消息体不存在")?;
+                let key = msg.key().ok_or("消息键不存在")?;
+                let com_id =
+                    Uuid::from_slice(key).map_err(|e| UniError::MsgError(e.to_string()))?;
+
+                msgs.push((com_id, E::from_bytes(payload)?));
+
                 if msg.offset() + 1 == high {
                     debug!("读到 {} 条事件流数据", msgs.len());
                     break;
@@ -152,29 +156,35 @@ pub(crate) async fn restore(
     while watermarks.len() > 0 {
         match consumer.poll(SUBSCRIBER_CONFIG.timeout) {
             Some(Ok(msg)) => {
-                let key = msg
-                    .key()
-                    .ok_or("消息键不存在")
-                    .map_err(|e| UniError::ReadError(e.to_owned()))?;
+                let key = msg.key().ok_or("消息键不存在")?;
                 let agg_id =
-                    Uuid::from_slice(key).map_err(|e| UniError::ReadError(e.to_string()))?;
-                let id = msg
-                    .headers()
-                    .ok_or(UniError::ReadError("消息头不存在".to_owned()))?
+                    Uuid::from_slice(key).map_err(|e| UniError::MsgError(e.to_string()))?;
+
+                let headers = msg.headers().ok_or("消息头不存在")?;
+                let id = headers
                     .iter()
                     .find(|h| h.key == "com_id")
-                    .ok_or(UniError::ReadError("'com_id'消息头不存在".to_owned()))?
+                    .ok_or("键为'com_id'的消息头不存在")?
                     .value
-                    .ok_or(UniError::ReadError("'com_id'消息头值为空".to_owned()))?;
-                let com_id =
-                    Uuid::from_slice(id).map_err(|e| UniError::ReadError(e.to_string()))?;
-                if let Some(coms) = agg_coms.get_mut(&agg_id) {
-                    coms.insert(com_id);
-                } else {
-                    let mut coms = AHashSet::new();
-                    coms.insert(com_id);
-                    agg_coms.insert(agg_id, coms);
+                    .ok_or("键'com_id'对应的值为空")?;
+                let com_id = Uuid::from_slice(id).map_err(|e| UniError::MsgError(e.to_string()))?;
+                let res_data = headers
+                    .iter()
+                    .find(|h| h.key == "response")
+                    .ok_or("键为'response'的消息头不存在")?
+                    .value
+                    .ok_or("键'response'对应的值为空")?;
+
+                if UniResponse::from_bytes(res_data) == UniResponse::Success {
+                    if let Some(coms) = agg_coms.get_mut(&agg_id) {
+                        coms.insert(com_id);
+                    } else {
+                        let mut coms = AHashSet::new();
+                        coms.insert(com_id);
+                        agg_coms.insert(agg_id, coms);
+                    }
                 }
+
                 let pid = msg.partition();
                 debug!("分区 {pid}：偏移 {} 读到聚合 {agg_id}", msg.offset());
                 if msg.offset() + 1 == watermarks[&pid] {

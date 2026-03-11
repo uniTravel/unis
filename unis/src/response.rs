@@ -12,7 +12,9 @@ pub enum UniResponse {
     AuthError = 2,
     /// 请求超时
     Timeout = 3,
-    /// 命令重复提交
+    /// 被冲突的新命令取代
+    Conflict = 4,
+    /// 命令已执行成功
     Duplicate = 11,
     /// 命令无法应用到聚合
     CheckError = 12,
@@ -36,6 +38,7 @@ impl UniResponse {
             1 => UniResponse::ValidateError,
             2 => UniResponse::AuthError,
             3 => UniResponse::Timeout,
+            4 => UniResponse::Conflict,
             11 => UniResponse::Duplicate,
             12 => UniResponse::CheckError,
             13 => UniResponse::CodeError,
@@ -59,7 +62,8 @@ impl std::fmt::Display for UniResponse {
             UniResponse::ValidateError => write!(f, "命令数据验证错误"),
             UniResponse::AuthError => write!(f, "身份验证错误"),
             UniResponse::Timeout => write!(f, "请求超时"),
-            UniResponse::Duplicate => write!(f, "命令重复提交"),
+            UniResponse::Conflict => write!(f, "被冲突的新命令取代"),
+            UniResponse::Duplicate => write!(f, "命令已执行成功"),
             UniResponse::CheckError => write!(f, "命令无法应用到聚合"),
             UniResponse::CodeError => write!(f, "序列化错误"),
             UniResponse::MsgError => write!(f, "消息处理错误"),
@@ -73,15 +77,14 @@ impl std::fmt::Display for UniResponse {
 impl IntoResponse for UniResponse {
     fn into_response(self) -> axum::response::Response {
         match self {
-            UniResponse::Success => StatusCode::OK.into_response(),
+            UniResponse::Success => (StatusCode::OK, "成功").into_response(),
             UniResponse::ValidateError => {
                 (StatusCode::BAD_REQUEST, "命令数据验证错误").into_response()
             }
             UniResponse::AuthError => (StatusCode::UNAUTHORIZED, "身份验证错误").into_response(),
             UniResponse::Timeout => (StatusCode::REQUEST_TIMEOUT, "请求超时").into_response(),
-            UniResponse::Duplicate => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "命令重复提交").into_response()
-            }
+            UniResponse::Conflict => (StatusCode::CONFLICT, "被冲突的新命令取代").into_response(),
+            UniResponse::Duplicate => (StatusCode::OK, "命令已执行成功").into_response(),
             UniResponse::CheckError => {
                 (StatusCode::BAD_REQUEST, "命令无法应用到聚合").into_response()
             }

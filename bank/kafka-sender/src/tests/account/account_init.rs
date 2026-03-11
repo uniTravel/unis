@@ -21,7 +21,7 @@ async fn create_account(#[future(awt)] app: Router, ctx: &'static Context) {
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = to_bytes(response.into_body(), 64).await.unwrap();
-    assert!(body.is_empty());
+    assert_eq!(body, Bytes::from("成功"));
 
     ctx.teardown().await;
 }

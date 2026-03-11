@@ -48,7 +48,7 @@ where
     E: EventEnum,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
     F: Fn(&'static str, Uuid) -> Fut + Send + Copy + 'static,
-    Fut: Future<Output = Result<Vec<E>, UniError>> + Send,
+    Fut: Future<Output = Result<Vec<(Uuid, E)>, UniError>> + Send,
 {
     type Fut = Fut;
 
@@ -127,14 +127,14 @@ where
                         len if len <= cfg.low => (),
                         len if len > cfg.high => {
                             let mut retain = cfg.retain;
-                            let _ = caches.extract_if(|_, (_, t)| t.elapsed() > Duration::from_secs(retain));
+                            caches.retain(|_, (_, t)| t.elapsed() < Duration::from_secs(retain));
                             while caches.len() > cfg.high {
                                 retain = retain / 2;
-                                let _ = caches.extract_if(|_, (_, t)| t.elapsed() > Duration::from_secs(retain));
+                                caches.retain(|_, (_, t)| t.elapsed() < Duration::from_secs(retain));
                             }
                         },
                         _ => {
-                            let _ = caches.extract_if(|_, (_, t)| t.elapsed() > Duration::from_secs(cfg.retain));
+                            caches.retain(|_, (_, t)| t.elapsed() < Duration::from_secs(cfg.retain));
                         }
                     }
                 }
@@ -210,9 +210,31 @@ where
                             Ok(()) => info!("重复提交聚合命令反馈成功"),
                             Err(e) => error!("重复提交聚合命令反馈失败：{e}"),
                         }
-                    } else {
-                        match com.apply(agg_type, agg_id, agg.clone(), loader).await {
-                            Ok((na, evt)) => match evt.to_bytes(&mut arena) {
+                        continue;
+                    }
+                    match com
+                        .apply(agg_type, agg_id, agg.clone(), &mut coms, loader)
+                        .await
+                    {
+                        Ok((na, evt)) => {
+                            if coms.contains(&com_id) {
+                                warn!("重复提交聚合命令");
+                                match stream
+                                    .respond(
+                                        agg_type,
+                                        agg_id,
+                                        com_id,
+                                        &UniResponse::Duplicate.to_bytes(),
+                                        EMPTY_BYTES,
+                                    )
+                                    .await
+                                {
+                                    Ok(()) => info!("重复提交聚合命令反馈成功"),
+                                    Err(e) => error!("重复提交聚合命令反馈失败：{e}"),
+                                }
+                                continue;
+                            }
+                            match evt.to_bytes(&mut arena) {
                                 Ok(bytes) => match stream
                                     .write(
                                         agg_type,
@@ -243,10 +265,9 @@ where
                                         {
                                             Ok(()) => {
                                                 info!("聚合类型事件写入失败反馈成功");
-                                                coms.insert(com_id);
                                             }
                                             Err(e) => {
-                                                error!("聚合类型事件写入失败反馈失败：{e}")
+                                                error!("聚合类型事件写入失败反馈失败：{e}");
                                             }
                                         }
                                     }
@@ -265,31 +286,31 @@ where
                                     {
                                         Ok(()) => {
                                             info!("聚合类型事件序列化错误反馈成功");
-                                            coms.insert(com_id);
                                         }
                                         Err(e) => {
-                                            error!("聚合类型事件序列化错误反馈失败：{e}")
+                                            error!("聚合类型事件序列化错误反馈失败：{e}");
                                         }
                                     }
                                 }
-                            },
-                            Err(e) => {
-                                error!("聚合命令预处理错误：{e}");
-                                match stream
-                                    .respond(
-                                        agg_type,
-                                        agg_id,
-                                        com_id,
-                                        &e.response().to_bytes(),
-                                        e.to_string().as_bytes(),
-                                    )
-                                    .await
-                                {
-                                    Ok(()) => {
-                                        info!("聚合命令预处理错误反馈成功");
-                                        coms.insert(com_id);
-                                    }
-                                    Err(e) => error!("聚合命令预处理错误反馈失败：{e}"),
+                            }
+                        }
+                        Err(e) => {
+                            error!("聚合命令预处理错误：{e}");
+                            match stream
+                                .respond(
+                                    agg_type,
+                                    agg_id,
+                                    com_id,
+                                    &e.response().to_bytes(),
+                                    e.to_string().as_bytes(),
+                                )
+                                .await
+                            {
+                                Ok(()) => {
+                                    info!("聚合命令预处理错误反馈成功");
+                                }
+                                Err(e) => {
+                                    error!("聚合命令预处理错误反馈失败：{e}");
                                 }
                             }
                         }

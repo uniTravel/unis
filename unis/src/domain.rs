@@ -1,6 +1,7 @@
 //! # **unis** 领域特征
 
 use crate::errors::UniError;
+use ahash::AHashSet;
 use rkyv::{
     Archive, Deserialize, Serialize,
     api::high::to_bytes_with_alloc,
@@ -122,6 +123,7 @@ where
         agg_type: &'static str,
         agg_id: Uuid,
         agg: Self::A,
+        coms: &mut AHashSet<Uuid>,
         loader: impl Load<Self::E>,
     ) -> impl Future<Output = Result<(Self::A, Self::E), UniError>> + Send;
 
@@ -147,7 +149,7 @@ where
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
     /// 返回类型
-    type Fut: Future<Output = Result<Vec<E>, UniError>> + Send;
+    type Fut: Future<Output = Result<Vec<(Uuid, E)>, UniError>> + Send;
 
     /// 从存储加载事件流
     fn load(&self, agg_type: &'static str, agg_id: Uuid) -> Self::Fut;

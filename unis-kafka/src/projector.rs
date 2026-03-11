@@ -111,7 +111,7 @@ async fn process(
     notify: Arc<Notify>,
 ) -> Result<(), ProjectError> {
     tc.subscribe(topics)?;
-    let mut msgs = AHashMap::with_capacity(PROJECTOR_CONFIG.partitions);
+    let mut agg_msgs = AHashMap::with_capacity(PROJECTOR_CONFIG.partitions);
     let mut offsets = AHashMap::with_capacity(PROJECTOR_CONFIG.capacity);
     let mut last_flush = Instant::now();
     let mut interval = tokio::time::interval(Duration::from_millis(1));
@@ -126,21 +126,21 @@ async fn process(
             biased;
             _ = &mut notified => {
                 info!("收到关闭信号，开始优雅退出");
-                if !msgs.is_empty() {
-                    process_batch(ap, tc, &mut msgs, &mut offsets, "优雅退出").await?;
+                if !agg_msgs.is_empty() {
+                    process_batch(ap, tc, &mut agg_msgs, &mut offsets, "优雅退出").await?;
                 }
                 break Ok(());
             }
             _ = interval.tick() => {
-                if !msgs.is_empty() && last_flush.elapsed() > Duration::from_millis(PROJECTOR_CONFIG.interval) {
-                    process_batch(ap, tc, &mut msgs, &mut offsets, "触及提交间隔阈值").await?;
+                if !agg_msgs.is_empty() && last_flush.elapsed() > Duration::from_millis(PROJECTOR_CONFIG.interval) {
+                    process_batch(ap, tc, &mut agg_msgs, &mut offsets, "触及提交间隔阈值").await?;
                     last_flush = Instant::now();
                     count = 0;
                 }
             }
             data = tc.recv() => match data {
                 Ok(msg) => match process_message(&msg) {
-                    Ok((agg_id, payload, res)) if res == UniResponse::Success => {
+                    Ok((agg_id, com_id, payload, res)) if res == UniResponse::Success => {
                         let agg_type = msg.topic().to_string();
                         let mut topic = String::with_capacity(agg_type.len() + 37);
                         topic.push_str(&agg_type);
@@ -149,15 +149,15 @@ async fn process(
                         let partition = msg.partition();
                         let offset = msg.offset();
 
-                        match msgs.get_mut(&topic) {
-                            Some(payloads) => payloads.push(payload),
+                        match agg_msgs.get_mut(&topic) {
+                            Some(msgs) => msgs.push((com_id, payload)),
                             None => {
-                                if msgs.len() == PROJECTOR_CONFIG.partitions {
-                                    process_batch(ap, tc, &mut msgs, &mut offsets, "触及分区数阈值").await?;
+                                if agg_msgs.len() == PROJECTOR_CONFIG.partitions {
+                                    process_batch(ap, tc, &mut agg_msgs, &mut offsets, "触及分区数阈值").await?;
                                     last_flush = Instant::now();
                                     count = 0;
                                 }
-                                msgs.insert(topic, vec![payload]);
+                                agg_msgs.insert(topic, vec![(com_id, payload)]);
                             }
                         }
 
@@ -171,7 +171,7 @@ async fn process(
 
                         count += 1;
                         if count == PROJECTOR_CONFIG.capacity {
-                            process_batch(ap, tc, &mut msgs, &mut offsets, "触及提交计数阈值").await?;
+                            process_batch(ap, tc, &mut agg_msgs, &mut offsets, "触及提交计数阈值").await?;
                             last_flush = Instant::now();
                             count = 0;
                         }
@@ -188,21 +188,23 @@ async fn process(
 async fn process_batch(
     ap: &FutureProducer,
     tc: &StreamConsumer,
-    msgs: &mut AHashMap<String, Vec<Vec<u8>>>,
+    agg_msgs: &mut AHashMap<String, Vec<(Uuid, Vec<u8>)>>,
     offsets: &mut AHashMap<(String, i32), i64>,
     reason: &str,
 ) -> Result<(), ProjectError> {
     info!("{reason}，提交批量投影");
     let cgm = tc.group_metadata().ok_or(ProjectError::MetadataError)?;
-    let msg_vec: Vec<(String, Vec<Vec<u8>>)> = msgs.drain().collect();
+    let msg_vec: Vec<(String, Vec<(Uuid, Vec<u8>)>)> = agg_msgs.drain().collect();
     let offset_vec: Vec<((String, i32), i64)> = offsets.drain().collect();
     let mut delivery_futures = Vec::with_capacity(msg_vec.len());
 
     ap.begin_transaction()?;
 
-    for (topic, payloads) in msg_vec {
-        for payload in payloads {
-            let record: FutureRecord<'_, (), Vec<u8>> = FutureRecord::to(&topic).payload(&payload);
+    for (topic, msgs) in msg_vec {
+        for (com_id, payload) in msgs {
+            let record = FutureRecord::to(&topic)
+                .payload(&payload)
+                .key(com_id.as_bytes());
             match ap.send_result(record) {
                 Ok(delevery_future) => {
                     delivery_futures.push(delevery_future);
@@ -254,13 +256,24 @@ async fn process_batch(
     Ok(())
 }
 
-fn process_message(msg: &BorrowedMessage<'_>) -> Result<(Uuid, Vec<u8>, UniResponse), UniError> {
+fn process_message(
+    msg: &BorrowedMessage<'_>,
+) -> Result<(Uuid, Uuid, Vec<u8>, UniResponse), UniError> {
     let key = msg.key().ok_or("消息键不存在")?;
     let agg_id = Uuid::from_slice(key).map_err(|e| UniError::MsgError(e.to_string()))?;
-    debug!("提取聚合Id：{agg_id} , 偏移：{}", msg.offset());
+    debug!("提取聚合Id：{agg_id}");
 
-    let payload = msg.payload().ok_or("err")?.to_vec();
+    let payload = msg.payload().ok_or("消息体不存在")?.to_vec();
     let headers = msg.headers().ok_or("消息头不存在")?;
+
+    let id = headers
+        .iter()
+        .find(|h| h.key == "com_id")
+        .ok_or("键为'com_id'的消息头不存在")?
+        .value
+        .ok_or("键'com_id'对应的值为空")?;
+    let com_id = Uuid::from_slice(id).map_err(|e| UniError::MsgError(e.to_string()))?;
+    debug!("提取命令Id：{com_id}");
 
     let res_data = headers
         .iter()
@@ -269,7 +282,7 @@ fn process_message(msg: &BorrowedMessage<'_>) -> Result<(Uuid, Vec<u8>, UniRespo
         .value
         .ok_or("键'response'对应的值为空")?;
     let res = UniResponse::from_bytes(res_data);
-    debug!("提取命令处理结果：{res}");
+    debug!("提取命令处理结果：{:?}", res);
 
-    Ok((agg_id, payload, res))
+    Ok((agg_id, com_id, payload, res))
 }

@@ -182,22 +182,18 @@ where
                     break;
                 }
                 _ = interval.tick() => {
-                    let _ = rs.extract_if(|_, (_, _, t)| t.elapsed() > Duration::from_secs(cfg.retain));
+                    rs.retain(|_, (_, _, t)| t.elapsed() < Duration::from_secs(cfg.retain));
                 }
                 data = rx.recv() => match data {
                     Some(Todo::Reply { agg_id, com_id, com, res_tx }) => match rs.remove(&com_id) {
                         Some((Some(rep), None, _)) => {
-                            let _ = rep.send(UniResponse::Duplicate);
+                            let _ = rep.send(UniResponse::Conflict);
                             rs.insert(com_id, (Some(res_tx), None, Instant::now()));
                         }
                         Some((None, Some(res), _)) => {
                             let _ = res_tx.send(res);
                         }
-                        Some((Some(rep), Some(res), _)) => {
-                            let _ = rep.send(UniResponse::Duplicate);
-                            let _ = res_tx.send(res);
-                        }
-                        Some((None, None, _)) => error!("请求反馈进入非法处理分支"),
+                        Some(_) => error!("请求反馈进入非法处理分支"),
                         None => match com.to_bytes(&mut arena) {
                             Ok(bytes) => {
                                 let record = FutureRecord::to(topic)
@@ -233,11 +229,9 @@ where
                             }
                         }
                     }
-                    Some(Todo::Response { com_id, res }) => match rs.get_mut(&com_id) {
-                        Some((Some(_), None, _)) => {
-                            if let Some((Some(res_tx), _, _)) = rs.remove(&com_id) {
-                                let _ = res_tx.send(res);
-                            }
+                    Some(Todo::Response { com_id, res }) => match rs.remove(&com_id) {
+                        Some((Some(res_tx), None, _)) => {
+                            let _ = res_tx.send(res);
                         }
                         Some(_) => error!("发送反馈进入非法处理分支"),
                         None => {

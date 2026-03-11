@@ -52,6 +52,7 @@ impl CommandEnum for AccountCommand {
         agg_type: &'static str,
         agg_id: Uuid,
         mut agg: Self::A,
+        coms: &mut ahash::AHashSet<Uuid>,
         loader: impl Load<Self::E>,
     ) -> Result<(Self::A, Self::E), UniError> {
         match self {
@@ -60,17 +61,17 @@ impl CommandEnum for AccountCommand {
                 Ok((agg, AccountEvent::Created(evt)))
             }
             AccountCommand::Verify(com) => {
-                replay(agg_type, agg_id, &mut agg, loader).await?;
+                replay(agg_type, agg_id, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, AccountEvent::Verified(evt)))
             }
             AccountCommand::Limit(com) => {
-                replay(agg_type, agg_id, &mut agg, loader).await?;
+                replay(agg_type, agg_id, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, AccountEvent::Limited(evt)))
             }
             AccountCommand::Approve(com) => {
-                replay(agg_type, agg_id, &mut agg, loader).await?;
+                replay(agg_type, agg_id, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, AccountEvent::Approved(evt)))
             }

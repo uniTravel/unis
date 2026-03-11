@@ -200,11 +200,13 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
             agg_type: &'static str,
             agg_id: ::uuid::Uuid,
             agg: &mut #agg_name,
+            coms: &mut ::ahash::AHashSet<::uuid::Uuid>,
             loader: impl ::unis::domain::Load<#enum_name>,
         ) -> Result<(), ::unis::errors::UniError>
         {
             if agg.revision == u64::MAX {
-                for evt in loader.load(agg_type, agg_id).await?.iter() {
+                for (com_id, evt) in loader.load(agg_type, agg_id).await? {
+                    coms.insert(com_id);
                     match evt {
                         #(#match_arms,)*
                     }
