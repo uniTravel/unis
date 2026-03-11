@@ -35,7 +35,7 @@ config.workspace = true
 [dev-dependencies]
 domain = { path = "../bank/domain" }
 unis = { workspace = true, features = ["full"] }
-unis-kafka = { workspace = true, features = ["full"] }
+unis-kafka = { path = ".", features = ["full"] }
 unis-utils.workspace = true
 
 rstest.workspace = true
