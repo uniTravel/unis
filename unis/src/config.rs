@@ -6,7 +6,7 @@ use config::{Config, Environment, File};
 use serde::{Deserialize, de::DeserializeOwned};
 use std::{collections::HashMap, fmt::Debug, path::PathBuf};
 use tracing::error;
-use validator::Validate;
+use validator::{Validate, ValidationError};
 
 /// 命名配置结构
 #[derive(Debug, Clone)]
@@ -95,10 +95,26 @@ pub fn load_named_setting(
     result
 }
 
+fn validate_key(key: &str) -> Result<(), ValidationError> {
+    let len = key.chars().count();
+    if len < 2 || len > 10 {
+        return Err(ValidationError::new("cfg_key_length"));
+    }
+
+    if !key.chars().all(|c| c.is_ascii_alphabetic()) {
+        return Err(ValidationError::new("cfg_key"));
+    }
+
+    Ok(())
+}
+
 /// 订阅者聚合配置结构
 #[derive(Debug, Deserialize, Validate, Clone)]
 #[serde(default)]
 pub struct SubscribeConfig {
+    /// 配置键
+    #[validate(custom(function = "validate_key"))]
+    pub key: String,
     /// 是否热点
     pub hotspot: bool,
     /// 缓存刷新间隔， 单位秒
@@ -122,6 +138,7 @@ pub struct SubscribeConfig {
 impl Default for SubscribeConfig {
     fn default() -> Self {
         Self {
+            key: String::default(),
             hotspot: false,
             interval: 30 * 60,
             low: 200,
@@ -138,6 +155,9 @@ impl Default for SubscribeConfig {
 #[derive(Debug, Deserialize, Validate, Clone)]
 #[serde(default)]
 pub struct SendConfig {
+    /// 配置键
+    #[validate(custom(function = "validate_key"))]
+    pub key: String,
     /// 是否热点
     pub hotspot: bool,
     /// 缓存刷新间隔， 单位秒
@@ -154,6 +174,7 @@ pub struct SendConfig {
 impl Default for SendConfig {
     fn default() -> Self {
         Self {
+            key: String::default(),
             hotspot: false,
             interval: 5,
             retain: 30,

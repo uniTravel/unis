@@ -2,7 +2,7 @@
 #![allow(unused_imports)]
 
 use crate::domain::CommandEnum;
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use rkyv::{
     Archive, Deserialize,
     de::Pool,
@@ -71,6 +71,32 @@ impl Context {
         }
     }
 
+    /// 启动特定聚合类型的订阅者
+    #[cfg(feature = "subscriber")]
+    pub async fn launch<C, S>(&'static self)
+    where
+        C: CommandEnum + Sync,
+        <C as Archive>::Archived: Deserialize<C, Strategy<Pool, Error>>,
+        <C::E as Archive>::Archived: rkyv::Deserialize<C::E, Strategy<Pool, Error>>,
+        S: crate::subscriber::Subscriber<C::A, C, C::E>,
+    {
+        let mut types = self.subscriber_types.lock().await;
+        if types.insert(TypeId::of::<C>()) {
+            if let Err(e) = S::launch(self).await {
+                error!(e);
+                self.shutdown().await;
+                self.all_done().await;
+                panic!("异常退出订阅者初始设置")
+            }
+        } else {
+            let type_name = std::any::type_name::<C>();
+            error!("重复启动 {type_name} 的订阅者");
+            self.shutdown().await;
+            self.all_done().await;
+            panic!("特定聚合类型的订阅者只能启动一次");
+        }
+    }
+
     /// 初始设置特定聚合类型的发送者
     #[cfg(feature = "sender")]
     pub async fn setup<C, S>(&'static self) -> S
@@ -97,32 +123,6 @@ impl Context {
             self.shutdown().await;
             self.all_done().await;
             panic!("特定聚合类型的发送者只能初始设置一次");
-        }
-    }
-
-    /// 启动特定聚合类型的订阅者
-    #[cfg(feature = "subscriber")]
-    pub async fn launch<C, S>(&'static self)
-    where
-        C: CommandEnum + Sync,
-        <C as Archive>::Archived: Deserialize<C, Strategy<Pool, Error>>,
-        <C::E as Archive>::Archived: rkyv::Deserialize<C::E, Strategy<Pool, Error>>,
-        S: crate::subscriber::Subscriber<C::A, C, C::E>,
-    {
-        let mut types = self.subscriber_types.lock().await;
-        if types.insert(TypeId::of::<C>()) {
-            if let Err(e) = S::launch(self).await {
-                error!(e);
-                self.shutdown().await;
-                self.all_done().await;
-                panic!("异常退出订阅者初始设置")
-            }
-        } else {
-            let type_name = std::any::type_name::<C>();
-            error!("重复启动 {type_name} 的订阅者");
-            self.shutdown().await;
-            self.all_done().await;
-            panic!("特定聚合类型的订阅者只能启动一次");
         }
     }
 

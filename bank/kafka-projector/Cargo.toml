@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 unis-kafka = { workspace = true, features = ["projector"] }
-domain = { path = "../domain" }
+domain = { path = "../../domain" }
 
 tokio.workspace = true
 tracing.workspace = true

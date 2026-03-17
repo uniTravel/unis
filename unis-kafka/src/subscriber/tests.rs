@@ -1,8 +1,7 @@
 mod restore_test;
 mod stream_test;
 
-use super::{SUBSCRIBER_CONFIG, reader, stream::Writer};
-use domain::account;
+use super::{SUBSCRIBER_CONFIG, Topic, reader, stream::Writer};
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
@@ -70,7 +69,7 @@ fn ctx() -> &'static Context {
 }
 
 async fn stream() -> Writer {
-    let agg_type = account::Account::topic();
+    let agg_type = domain::Account::type_name();
     let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
     let cfg = SUBSCRIBER_CONFIG.subscriber.get(cfg_name);
     Writer::new(&cfg).await
@@ -109,10 +108,7 @@ async fn is_topic_exist(name: &str) -> bool {
     }
 }
 
-async fn is_agg_topic_exist(agg_type: &str, agg_id: Uuid) -> bool {
-    let mut topic = String::with_capacity(agg_type.len() + 37);
-    topic.push_str(agg_type);
-    topic.push_str("-");
-    topic.push_str(&agg_id.to_string());
-    is_topic_exist(&topic).await
+async fn is_agg_topic_exist(topic: &'static str, agg_id: Uuid) -> bool {
+    let topic_agg = super::topic_agg(topic, agg_id);
+    is_topic_exist(&topic_agg).await
 }

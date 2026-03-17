@@ -9,9 +9,12 @@ use rdkafka::{
     message::{BorrowedMessage, Headers},
     producer::{FutureProducer, FutureRecord, Producer, future_producer::Delivery},
 };
-use std::sync::{
-    Arc, LazyLock,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    any::TypeId,
+    sync::{
+        Arc, LazyLock, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use thiserror::Error;
 use tokio::{
@@ -26,6 +29,29 @@ pub use unis::app::context;
 pub use unis::domain::Aggregate;
 
 static PROJECTOR_CONFIG: LazyLock<ProjectorConfig> = LazyLock::new(|| ProjectorConfig::get());
+
+/// 聚合主题特征
+pub trait Topic: 'static {
+    /// 获取聚合类型主题
+    fn topic() -> &'static str;
+}
+
+impl<A> Topic for A
+where
+    A: Aggregate + 'static,
+{
+    fn topic() -> &'static str {
+        static CACHE: LazyLock<Mutex<AHashMap<TypeId, &'static str>>> =
+            LazyLock::new(|| Mutex::new(AHashMap::new()));
+        let type_id = TypeId::of::<A>();
+        let mut cache = CACHE.lock().unwrap();
+        cache.entry(type_id).or_insert_with(|| {
+            let agg_type = A::type_name();
+            let topic = format!("{}.{}", PROJECTOR_CONFIG.name, agg_type);
+            Box::leak(Box::new(topic))
+        })
+    }
+}
 
 #[derive(Debug, Error)]
 enum ProjectError {

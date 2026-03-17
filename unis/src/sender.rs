@@ -25,8 +25,8 @@ where
 {
     #[doc(hidden)]
     fn new(ctx: &'static Context) -> impl Future<Output = Result<Self, String>>;
-    /// 获取聚合类型
-    fn agg_type(&self) -> &'static str;
+    /// 获取聚合类型主题
+    fn topic(&self) -> &'static str;
     /// 请求处理回复
     fn send(&self, todo: Todo<A, C, E>) -> Result<(), SendError<Todo<A, C, E>>>;
 
@@ -40,7 +40,7 @@ where
     }
 
     /// 发送变更聚合命令
-    #[instrument(name = "send_command", skip_all, fields(agg_type = self.agg_type(), %agg_id, %com_id))]
+    #[instrument(name = "send_command", skip_all, fields(topic = self.topic(), %agg_id, %com_id))]
     fn change(&self, agg_id: Uuid, com_id: Uuid, com: C) -> impl Future<Output = UniResponse> {
         async move {
             let (res_tx, res_rx) = oneshot::channel::<UniResponse>();

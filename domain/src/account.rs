@@ -1,10 +1,3 @@
-use unis::{
-    domain::{Command, CommandEnum, Event, Load},
-    errors::UniError,
-    macros::{aggregate, command_enum, event_enum},
-};
-use uuid::Uuid;
-
 mod approve;
 mod create;
 mod limit;
@@ -15,17 +8,13 @@ pub use create::CreateAccount;
 pub use limit::LimitAccount;
 pub use verify::VerifyAccount;
 
-#[aggregate]
-pub struct Account {
-    code: String,
-    owner: String,
-    limit: i64,
-    verified_by: String,
-    verified: bool,
-    verify_conclusion: bool,
-    approved_by: String,
-    approved: bool,
-}
+use crate::Account;
+use unis::{
+    domain::{Command, CommandEnum, Event, Load},
+    errors::UniError,
+    macros::{command_enum, event_enum},
+};
+use uuid::Uuid;
 
 #[event_enum(Account)]
 pub enum AccountEvent {
@@ -49,7 +38,7 @@ impl CommandEnum for AccountCommand {
 
     async fn apply(
         self,
-        agg_type: &'static str,
+        topic: &'static str,
         agg_id: Uuid,
         mut agg: Self::A,
         coms: &mut ahash::AHashSet<Uuid>,
@@ -61,17 +50,17 @@ impl CommandEnum for AccountCommand {
                 Ok((agg, AccountEvent::Created(evt)))
             }
             AccountCommand::Verify(com) => {
-                replay(agg_type, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, AccountEvent::Verified(evt)))
             }
             AccountCommand::Limit(com) => {
-                replay(agg_type, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, AccountEvent::Limited(evt)))
             }
             AccountCommand::Approve(com) => {
-                replay(agg_type, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, AccountEvent::Approved(evt)))
             }

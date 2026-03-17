@@ -1,10 +1,3 @@
-use unis::{
-    domain::{Command, CommandEnum, Event, Load},
-    errors::UniError,
-    macros::{aggregate, command_enum, event_enum},
-};
-use uuid::Uuid;
-
 mod change_limit;
 mod deposit;
 mod init;
@@ -25,14 +18,13 @@ pub use transfer_in::TransferIn;
 pub use transfer_out::TransferOut;
 pub use withdraw::Withdraw;
 
-#[aggregate]
-pub struct Transaction {
-    account_code: String,
-    balance: i64,
-    period: String,
-    limit: i64,
-    trans_limit: i64,
-}
+use crate::Transaction;
+use unis::{
+    domain::{Command, CommandEnum, Event, Load},
+    errors::UniError,
+    macros::{command_enum, event_enum},
+};
+use uuid::Uuid;
 
 #[event_enum(Transaction)]
 pub enum TransactionEvent {
@@ -66,7 +58,7 @@ impl CommandEnum for TransactionCommand {
 
     async fn apply(
         self,
-        agg_type: &'static str,
+        topic: &'static str,
         agg_id: Uuid,
         mut agg: Self::A,
         coms: &mut ahash::AHashSet<Uuid>,
@@ -82,37 +74,37 @@ impl CommandEnum for TransactionCommand {
                 Ok((agg, TransactionEvent::PeriodOpened(evt)))
             }
             TransactionCommand::SetLimit(com) => {
-                replay(agg_type, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::LimitSetted(evt)))
             }
             TransactionCommand::ChangeLimit(com) => {
-                replay(agg_type, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::LimitChanged(evt)))
             }
             TransactionCommand::SetTransLimit(com) => {
-                replay(agg_type, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::TransLimitSetted(evt)))
             }
             TransactionCommand::Deposit(com) => {
-                replay(agg_type, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::DepositFinished(evt)))
             }
             TransactionCommand::Withdraw(com) => {
-                replay(agg_type, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::WithdrawFinished(evt)))
             }
             TransactionCommand::TransferOut(com) => {
-                replay(agg_type, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::TransferOutFinished(evt)))
             }
             TransactionCommand::TransferIn(com) => {
-                replay(agg_type, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::TransferInFinished(evt)))
             }

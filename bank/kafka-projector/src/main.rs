@@ -1,7 +1,6 @@
-use domain::{account, transaction};
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
-use unis_kafka::projector::{self, Aggregate};
+use unis_kafka::projector::{self, Topic};
 
 #[tokio::main]
 async fn main() {
@@ -15,7 +14,7 @@ async fn main() {
     let ctx = projector::context().await;
     projector::launch(
         ctx,
-        vec![account::Account::topic(), transaction::Transaction::topic()],
+        vec![domain::Account::topic(), domain::Transaction::topic()],
     )
     .await;
 

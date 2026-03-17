@@ -9,7 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-domain = { path = "../domain" }
+domain = { path = "../../domain" }
 unis.workspace = true
 unis-utils.workspace = true
 

@@ -1,7 +1,7 @@
 [package]
 name = "unis-kafka"
 description = "unis框架的Kafka实现。"
-version = "0.1.2"
+version = "0.1.3"
 
 edition.workspace = true
 authors.workspace = true
@@ -33,7 +33,7 @@ thiserror.workspace = true
 config.workspace = true
 
 [dev-dependencies]
-domain = { path = "../bank/domain" }
+domain = { path = "../domain" }
 unis = { workspace = true, features = ["full"] }
 unis-kafka = { path = ".", features = ["full"] }
 unis-utils.workspace = true

@@ -14,18 +14,14 @@ use uuid::Uuid;
 static POOL: LazyLock<ConsumerPool> = LazyLock::new(|| ConsumerPool::new());
 
 #[instrument(name = "load_aggregate", level = "debug")]
-pub async fn load<E>(agg_type: &'static str, agg_id: Uuid) -> Result<Vec<(Uuid, E)>, UniError>
+pub async fn load<E>(topic: &'static str, agg_id: Uuid) -> Result<Vec<(Uuid, E)>, UniError>
 where
     E: EventEnum,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
-    let mut topic = String::with_capacity(agg_type.len() + 37);
-    topic.push_str(agg_type);
-    topic.push_str("-");
-    topic.push_str(&agg_id.to_string());
-
+    let topic_agg = super::topic_agg(topic, agg_id);
     let mut tpl = TopicPartitionList::new();
-    tpl.add_partition_offset(&topic, 0, rdkafka::Offset::Beginning)
+    tpl.add_partition_offset(&topic_agg, 0, rdkafka::Offset::Beginning)
         .map_err(|e| UniError::ReadError(e.to_string()))?;
     let guard = POOL.get()?;
     let consumer = guard.into_inner();
@@ -34,7 +30,7 @@ where
         .map_err(|e| UniError::ReadError(e.to_string()))?;
 
     let (low, high) = consumer
-        .fetch_watermarks(&topic, 0, SUBSCRIBER_CONFIG.timeout)
+        .fetch_watermarks(&topic_agg, 0, SUBSCRIBER_CONFIG.timeout)
         .map_err(|e| UniError::ReadError(e.to_string()))?;
 
     if low == -1 || high == -1 {
@@ -74,7 +70,7 @@ where
 
 #[instrument(name = "restore_command", level = "debug", skip(latest))]
 pub(crate) async fn restore(
-    agg_type: &'static str,
+    topic: &'static str,
     latest: i64,
 ) -> Result<AHashMap<Uuid, AHashSet<Uuid>>, UniError> {
     debug!("开始恢复最近 {latest} 分钟的命令操作记录");
@@ -86,7 +82,7 @@ pub(crate) async fn restore(
     let consumer = guard.into_inner();
 
     let metadata = consumer
-        .fetch_metadata(Some(agg_type), SUBSCRIBER_CONFIG.timeout)
+        .fetch_metadata(Some(topic), SUBSCRIBER_CONFIG.timeout)
         .map_err(|e| UniError::ReadError(e.to_string()))?;
     let start_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -98,7 +94,7 @@ pub(crate) async fn restore(
         let pid = partition.id();
         let mut seek_tpl = TopicPartitionList::new();
         seek_tpl
-            .add_partition_offset(agg_type, pid, Offset::Offset(start_time))
+            .add_partition_offset(topic, pid, Offset::Offset(start_time))
             .map_err(|e| UniError::ReadError(e.to_string()))?;
         let offset = if let Some(tp) = consumer
             .offsets_for_times(seek_tpl, SUBSCRIBER_CONFIG.timeout)
@@ -137,10 +133,10 @@ pub(crate) async fn restore(
             Offset::End
         };
 
-        tpl.add_partition_offset(agg_type, pid, offset)
+        tpl.add_partition_offset(topic, pid, offset)
             .map_err(|e| UniError::ReadError(e.to_string()))?;
         let (low, high) = consumer
-            .fetch_watermarks(agg_type, pid, SUBSCRIBER_CONFIG.timeout)
+            .fetch_watermarks(topic, pid, SUBSCRIBER_CONFIG.timeout)
             .map_err(|e| UniError::ReadError(e.to_string()))?;
         debug!("分区 {pid} 水位：{low} ~ {high}");
         if offset != Offset::End {

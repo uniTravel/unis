@@ -2,9 +2,11 @@ hostname = ""
 bootstrap = "localhost:30001,localhost:30002,localhost:30003"
 
 [sender.Account]
+key = "bank"
 sems = 50
 
 [sender.Transaction]
+key = "bank"
 hotspot = true
 sems = 300
 

@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 unis = { workspace = true, features = ["sender"] }
 unis-kafka = { workspace = true, features = ["sender"] }
-domain = { path = "../domain" }
+domain = { path = "../../domain" }
 
 uuid.workspace = true
 tokio.workspace = true

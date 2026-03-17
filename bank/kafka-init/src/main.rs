@@ -1,4 +1,4 @@
-use domain::{account::Account, transaction::Transaction};
+use domain::{Account, Transaction};
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
@@ -50,6 +50,8 @@ async fn main() {
 }
 
 fn topic<A: Aggregate>(topics: &mut Vec<NewTopic<'_>>) {
-    topics.push(NewTopic::new(A::topic(), 3, TopicReplication::Fixed(3)));
-    topics.push(NewTopic::new(A::topic_com(), 3, TopicReplication::Fixed(3)));
+    let topic: &'static str = Box::leak(Box::new(format!("bank.{}", A::type_name())));
+    let topic_com: &'static str = Box::leak(Box::new(format!("{}-command", topic)));
+    topics.push(NewTopic::new(topic, 3, TopicReplication::Fixed(3)));
+    topics.push(NewTopic::new(topic_com, 3, TopicReplication::Fixed(3)));
 }

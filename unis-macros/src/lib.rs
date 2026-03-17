@@ -90,19 +90,9 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
             }
             fn id(&self) -> ::uuid::Uuid { self.id }
             fn revision(&self) -> u64 { self.revision }
-            fn topic() -> &'static str {
+            fn type_name() -> &'static str {
                 static NAME: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
                     std::any::type_name::<#struct_name>().replace("::", ".")
-                });
-                &NAME
-            }
-            fn topic_com() -> &'static str {
-                static NAME: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-                    let agg_type = std::any::type_name::<#struct_name>().replace("::", ".");
-                    let mut topic = String::with_capacity(agg_type.len() + 8);
-                    topic.push_str(&agg_type);
-                    topic.push_str("-command");
-                    topic
                 });
                 &NAME
             }
@@ -197,7 +187,7 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
 
         async fn replay(
-            agg_type: &'static str,
+            topic: &'static str,
             agg_id: ::uuid::Uuid,
             agg: &mut #agg_name,
             coms: &mut ::ahash::AHashSet<::uuid::Uuid>,
@@ -205,7 +195,7 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
         ) -> Result<(), ::unis::errors::UniError>
         {
             if agg.revision == u64::MAX {
-                for (com_id, evt) in loader.load(agg_type, agg_id).await? {
+                for (com_id, evt) in loader.load(topic, agg_id).await? {
                     coms.insert(com_id);
                     match evt {
                         #(#match_arms,)*

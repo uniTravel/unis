@@ -27,10 +27,8 @@ pub trait Aggregate: Send + Clone + 'static {
     fn id(&self) -> Uuid;
     /// 获取 revision
     fn revision(&self) -> u64;
-    /// 获取聚合类型主题
-    fn topic() -> &'static str;
-    /// 获取聚合类型命令主题
-    fn topic_com() -> &'static str;
+    /// 获取聚合类型全称
+    fn type_name() -> &'static str;
 }
 
 /// 事件特征
@@ -120,7 +118,7 @@ where
     /// 执行命令枚举
     fn apply(
         self,
-        agg_type: &'static str,
+        topic: &'static str,
         agg_id: Uuid,
         agg: Self::A,
         coms: &mut AHashSet<Uuid>,
@@ -152,7 +150,7 @@ where
     type Fut: Future<Output = Result<Vec<(Uuid, E)>, UniError>> + Send;
 
     /// 从存储加载事件流
-    fn load(&self, agg_type: &'static str, agg_id: Uuid) -> Self::Fut;
+    fn load(&self, topic: &'static str, agg_id: Uuid) -> Self::Fut;
 }
 
 /// 配置特征

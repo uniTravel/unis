@@ -47,7 +47,7 @@ impl subscriber::Stream for Writer {
     #[instrument(name = "stream_write", level = "debug", skip(self, revision, evt_data))]
     async fn write(
         &self,
-        agg_type: &'static str,
+        topic: &'static str,
         agg_id: Uuid,
         com_id: Uuid,
         revision: u64,
@@ -55,12 +55,12 @@ impl subscriber::Stream for Writer {
     ) -> Result<(), UniError> {
         if revision == 0 {
             debug!("创建聚合主题");
-            if let Err(e) = self.topic_tx.send(TopicTask { agg_type, agg_id }) {
-                error!(agg_type, %agg_id, "发送聚合主题失败：{e}");
+            if let Err(e) = self.topic_tx.send(TopicTask { topic, agg_id }) {
+                error!(topic, %agg_id, "发送聚合主题失败：{e}");
             }
         }
 
-        let record = FutureRecord::to(agg_type)
+        let record = FutureRecord::to(topic)
             .payload(evt_data)
             .key(agg_id.as_bytes())
             .headers(
@@ -93,13 +93,13 @@ impl subscriber::Stream for Writer {
     #[instrument(name = "stream_respond", level = "debug", skip(self, res, evt_data))]
     async fn respond(
         &self,
-        agg_type: &'static str,
+        topic: &'static str,
         agg_id: Uuid,
         com_id: Uuid,
         res: &[u8; 1],
         evt_data: &[u8],
     ) -> Result<(), UniError> {
-        let record = FutureRecord::to(agg_type)
+        let record = FutureRecord::to(topic)
             .payload(evt_data)
             .key(agg_id.as_bytes())
             .headers(

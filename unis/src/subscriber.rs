@@ -19,7 +19,7 @@ pub trait Restore: Send + 'static {
     type Fut: Future<Output = Result<AHashMap<Uuid, AHashSet<Uuid>>, UniError>> + Send;
 
     /// 从存储恢复命令操作记录
-    fn restore(&self, agg_type: &'static str, latest: i64) -> Self::Fut;
+    fn restore(&self, topic: &'static str, latest: i64) -> Self::Fut;
 }
 
 /// 流写入特征
@@ -27,7 +27,7 @@ pub trait Stream: Send + Sync + 'static {
     /// 事件写入流
     fn write(
         &self,
-        agg_type: &'static str,
+        topic: &'static str,
         agg_id: Uuid,
         com_id: Uuid,
         revision: u64,
@@ -36,7 +36,7 @@ pub trait Stream: Send + Sync + 'static {
     /// 错误反馈写入流
     fn respond(
         &self,
-        agg_type: &'static str,
+        topic: &'static str,
         agg_id: Uuid,
         com_id: Uuid,
         res: &[u8; 1],

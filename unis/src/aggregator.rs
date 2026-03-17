@@ -38,8 +38,8 @@ where
     type Fut = Fut;
 
     #[inline]
-    fn restore(&self, agg_type: &'static str, latest: i64) -> Self::Fut {
-        self(agg_type, latest)
+    fn restore(&self, topic: &'static str, latest: i64) -> Self::Fut {
+        self(topic, latest)
     }
 }
 
@@ -52,8 +52,8 @@ where
 {
     type Fut = Fut;
 
-    fn load(&self, agg_type: &'static str, agg_id: Uuid) -> Self::Fut {
-        self(agg_type, agg_id)
+    fn load(&self, topic: &'static str, agg_id: Uuid) -> Self::Fut {
+        self(topic, agg_id)
     }
 }
 
@@ -78,8 +78,12 @@ where
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
     /// 启动聚合器
-    #[instrument(name = "launch_aggregator", skip_all, fields(agg_type))]
+    #[instrument(
+        name = "launch_aggregator",
+        skip(cfg, loader, stream, restore, rx, ready)
+    )]
     pub async fn launch(
+        topic: &'static str,
         cfg: SubscribeConfig,
         loader: impl Load<E>,
         stream: Arc<impl Stream>,
@@ -87,20 +91,18 @@ where
         mut rx: UnboundedReceiver<Com<C>>,
         ready: Arc<Notify>,
     ) {
-        let agg_type = A::topic();
-        Span::current().record("agg_type", agg_type);
         let latest = cfg.latest;
         let mut caches: AHashMap<Uuid, (UnboundedSender<Com<C>>, Instant)> = AHashMap::new();
         let start = Instant::now();
         let mut interval = time::interval_at(start, Duration::from_secs(cfg.interval));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-        match restore.restore(agg_type, latest).await {
+        match restore.restore(topic, latest).await {
             Ok(agg_coms) => {
                 for (agg_id, coms) in agg_coms {
                     let (agg_tx, agg_rx) = mpsc::unbounded_channel::<Com<C>>();
                     tokio::spawn(Self::process(
-                        agg_type,
+                        topic,
                         agg_id,
                         loader,
                         Arc::clone(&stream),
@@ -149,7 +151,7 @@ where
                         } else {
                             let (agg_tx, agg_rx) = mpsc::unbounded_channel::<Com<C>>();
                             tokio::spawn(Self::process(
-                                agg_type,
+                                topic,
                                 agg_id,
                                 loader,
                                 Arc::clone(&stream),
@@ -177,7 +179,7 @@ where
         fields(com_id)
     )]
     async fn process(
-        agg_type: &'static str,
+        topic: &'static str,
         agg_id: Uuid,
         loader: impl Load<E>,
         stream: Arc<impl Stream>,
@@ -199,7 +201,7 @@ where
                         warn!("重复提交聚合命令");
                         match stream
                             .respond(
-                                agg_type,
+                                topic,
                                 agg_id,
                                 com_id,
                                 &UniResponse::Duplicate.to_bytes(),
@@ -213,7 +215,7 @@ where
                         continue;
                     }
                     match com
-                        .apply(agg_type, agg_id, agg.clone(), &mut coms, loader)
+                        .apply(topic, agg_id, agg.clone(), &mut coms, loader)
                         .await
                     {
                         Ok((na, evt)) => {
@@ -221,7 +223,7 @@ where
                                 warn!("重复提交聚合命令");
                                 match stream
                                     .respond(
-                                        agg_type,
+                                        topic,
                                         agg_id,
                                         com_id,
                                         &UniResponse::Duplicate.to_bytes(),
@@ -236,13 +238,7 @@ where
                             }
                             match evt.to_bytes(&mut arena) {
                                 Ok(bytes) => match stream
-                                    .write(
-                                        agg_type,
-                                        agg_id,
-                                        com_id,
-                                        na.revision(),
-                                        bytes.as_slice(),
-                                    )
+                                    .write(topic, agg_id, com_id, na.revision(), bytes.as_slice())
                                     .await
                                 {
                                     Ok(()) => {
@@ -255,7 +251,7 @@ where
                                         error!("聚合类型事件写入失败：{e}");
                                         match stream
                                             .respond(
-                                                agg_type,
+                                                topic,
                                                 agg_id,
                                                 com_id,
                                                 &e.response().to_bytes(),
@@ -276,7 +272,7 @@ where
                                     error!("聚合类型事件序列化错误：{e}");
                                     match stream
                                         .respond(
-                                            agg_type,
+                                            topic,
                                             agg_id,
                                             com_id,
                                             &UniResponse::CodeError.to_bytes(),
@@ -298,7 +294,7 @@ where
                             error!("聚合命令预处理错误：{e}");
                             match stream
                                 .respond(
-                                    agg_type,
+                                    topic,
                                     agg_id,
                                     com_id,
                                     &e.response().to_bytes(),

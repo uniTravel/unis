@@ -15,8 +15,9 @@ use rkyv::{
     ser::allocator::Arena,
 };
 use std::{
+    any::TypeId,
     marker::PhantomData,
-    sync::{Arc, LazyLock},
+    sync::{Arc, LazyLock, Mutex},
 };
 use tokio::{
     sync::{Notify, mpsc, oneshot},
@@ -52,6 +53,41 @@ static CP_CONFIG: LazyLock<ClientConfig> = LazyLock::new(|| {
     config
 });
 
+trait Topic: 'static {
+    fn topic() -> &'static str;
+    fn topic_com() -> &'static str;
+}
+
+impl<A> Topic for A
+where
+    A: Aggregate + 'static,
+{
+    fn topic() -> &'static str {
+        static CACHE: LazyLock<Mutex<AHashMap<TypeId, &'static str>>> =
+            LazyLock::new(|| Mutex::new(AHashMap::new()));
+        let type_id = TypeId::of::<A>();
+        let mut cache = CACHE.lock().unwrap();
+        cache.entry(type_id).or_insert_with(|| {
+            let agg_type = A::type_name();
+            let cfg_name = agg_type.rsplit(".").next().unwrap();
+            let cfg = SENDER_CONFIG.sender.get(cfg_name);
+            let topic = format!("{}.{}", cfg.key, agg_type);
+            Box::leak(Box::new(topic))
+        })
+    }
+
+    fn topic_com() -> &'static str {
+        static CACHE: LazyLock<Mutex<AHashMap<TypeId, &'static str>>> =
+            LazyLock::new(|| Mutex::new(AHashMap::new()));
+        let type_id = TypeId::of::<A>();
+        let mut cache = CACHE.lock().unwrap();
+        cache.entry(type_id).or_insert_with(|| {
+            let topic_com = format!("{}-command", Self::topic());
+            Box::leak(Box::new(topic_com))
+        })
+    }
+}
+
 /// Kafka 发送者结构
 pub struct KafkaSender<C>
 where
@@ -61,7 +97,6 @@ where
     C::E: EventEnum<A = C::A>,
     <C::E as Archive>::Archived: Deserialize<C::E, Strategy<Pool, Error>>,
 {
-    agg_type: &'static str,
     tx: mpsc::UnboundedSender<Todo<C::A, C, C::E>>,
     _marker: PhantomData<C>,
 }
@@ -75,8 +110,8 @@ where
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
     #[inline(always)]
-    fn agg_type(&self) -> &'static str {
-        self.agg_type
+    fn topic(&self) -> &'static str {
+        A::topic()
     }
 
     #[inline(always)]
@@ -84,17 +119,18 @@ where
         self.tx.send(todo)
     }
 
-    #[instrument(name = "build_sender", skip_all, fields(agg_type))]
+    #[instrument(name = "build_sender", skip_all, fields(topic))]
     async fn new(ctx: &'static unis::app::Context) -> Result<Self, String> {
-        let agg_type = A::topic();
-        Span::current().record("agg_type", agg_type);
+        let agg_type = A::type_name();
+        let topic = A::topic();
+        Span::current().record("topic", topic);
         let cfg_name = agg_type.rsplit(".").next().ok_or("获取聚合名称失败")?;
         let settings = SENDER_CONFIG
             .tc
             .get(cfg_name)
             .ok_or("获取发送者消费配置失败")?;
         let cfg = SENDER_CONFIG.sender.get(cfg_name);
-        let topic = A::topic_com();
+        let topic_com = A::topic_com();
         let producer = match cfg.hotspot {
             true => Arc::new(
                 CP_CONFIG
@@ -103,34 +139,33 @@ where
             ),
             false => SHARED_CP.clone(),
         };
-        info!("成功创建 {topic} 聚合命令生产者");
+        info!("成功创建 {topic_com} 聚合命令生产者");
 
         let mut config = ClientConfig::new();
         for (key, value) in settings {
             config.set(key, value);
         }
         config.set("bootstrap.servers", &SENDER_CONFIG.bootstrap);
-        config.set("group.id", format!("{agg_type}-{}", SENDER_CONFIG.hostname));
+        config.set("group.id", format!("{topic}-{}", SENDER_CONFIG.hostname));
         let tc: Arc<StreamConsumer> = Arc::new(
             config
                 .create()
                 .map_err(|e| format!("发送者消费创建失败：{e}"))?,
         );
-        tc.subscribe(&[agg_type])
+        tc.subscribe(&[topic])
             .map_err(|e| format!("订阅聚合类型事件流失败：{e}"))?;
         info!("成功订阅聚合类型事件流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Todo<A, C, E>>();
         ctx.spawn_notify(move |ready, notify| {
-            Self::respond(agg_type, producer, topic, cfg, rx, ready, notify)
+            Self::respond(topic, producer, topic_com, cfg, rx, ready, notify)
         })
         .await;
         let tx_clone = tx.clone();
-        ctx.spawn_notify(move |ready, notify| Self::consume(agg_type, tc, tx_clone, ready, notify))
+        ctx.spawn_notify(move |ready, notify| Self::consume(topic, tc, tx_clone, ready, notify))
             .await;
 
         Ok(Self {
-            agg_type,
             tx,
             _marker: PhantomData,
         })
@@ -147,12 +182,12 @@ where
 {
     #[instrument(
         name = "aggregate_respond",
-        skip(producer, topic, cfg, rx, ready, notify)
+        skip(producer, topic_com, cfg, rx, ready, notify)
     )]
     async fn respond(
-        agg_type: &'static str,
-        producer: Arc<FutureProducer>,
         topic: &'static str,
+        producer: Arc<FutureProducer>,
+        topic_com: &'static str,
         cfg: SendConfig,
         mut rx: mpsc::UnboundedReceiver<Todo<A, C, E>>,
         ready: Arc<Notify>,
@@ -196,7 +231,7 @@ where
                         Some(_) => error!("请求反馈进入非法处理分支"),
                         None => match com.to_bytes(&mut arena) {
                             Ok(bytes) => {
-                                let record = FutureRecord::to(topic)
+                                let record = FutureRecord::to(topic_com)
                                     .payload(bytes.as_slice())
                                     .key(agg_id.as_bytes())
                                     .headers(OwnedHeaders::new_with_capacity(1).insert(Header {
@@ -249,7 +284,7 @@ where
 
     #[instrument(name = "aggregate_consume", skip(tc, tx, ready, notify))]
     async fn consume(
-        agg_type: &'static str,
+        topic: &'static str,
         tc: Arc<StreamConsumer>,
         tx: mpsc::UnboundedSender<Todo<A, C, E>>,
         ready: Arc<Notify>,
@@ -268,7 +303,7 @@ where
                 data = tc.recv() => match data {
                     Ok(msg) => match process_message(&msg) {
                         Ok((agg_id, com_id, res)) => {
-                            let span = info_span!(parent: None, "respond_command", agg_type, %agg_id, %com_id);
+                            let span = info_span!(parent: None, "respond_command", topic, %agg_id, %com_id);
                             span.clone().in_scope(|| {
                                 if let Err(e) = tx.send(Todo::Response { com_id, res }) {
                                     error!("发送聚合命令反馈错误：{e}");
