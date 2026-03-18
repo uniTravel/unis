@@ -191,15 +191,13 @@ async fn shutdown_signal() {
         let mut sigint = match signal(SignalKind::interrupt()) {
             Ok(sigint) => sigint,
             Err(e) => {
-                error!("监听 SIGINT 信号失败：{e}");
-                panic!("监听 SIGINT 信号失败");
+                panic!("监听 SIGINT 信号失败：{e}");
             }
         };
         let mut sigterm = match signal(SignalKind::terminate()) {
             Ok(sigterm) => sigterm,
             Err(e) => {
-                error!("监听 SIGTERM 信号失败：{e}");
-                panic!("监听 SIGTERM 信号失败");
+                panic!("监听 SIGTERM 信号失败：{e}");
             }
         };
         tokio::select! {

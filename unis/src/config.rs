@@ -5,7 +5,6 @@
 use config::{Config, Environment, File};
 use serde::{Deserialize, de::DeserializeOwned};
 use std::{collections::HashMap, fmt::Debug, path::PathBuf};
-use tracing::error;
 use validator::{Validate, ValidationError};
 
 /// 命名配置结构
@@ -42,8 +41,7 @@ pub fn build_config() -> Config {
     {
         Ok(c) => c,
         Err(e) => {
-            error!("加载配置失败：{e}");
-            panic!("加载配置失败");
+            panic!("加载配置失败：{e}");
         }
     }
 }
@@ -56,15 +54,13 @@ where
     let configs = match config.get::<HashMap<String, T>>(section) {
         Ok(c) => c,
         Err(e) => {
-            error!("加载命名配置'{section}'失败：{e}");
-            panic!("加载命名配置失败");
+            panic!("加载命名配置'{section}'失败：{e}");
         }
     };
 
     for (key, cfg) in &configs {
         if let Err(e) = cfg.validate() {
-            error!("[{section}.{key}]命名配置验证失败：{e}");
-            panic!("命名配置验证失败");
+            panic!("[{section}.{key}]命名配置验证失败：{e}");
         }
     }
 
@@ -85,8 +81,7 @@ pub fn load_named_setting(
         let map = match value.try_deserialize::<HashMap<String, String>>() {
             Ok(c) => c,
             Err(e) => {
-                error!("加载命名配置'{section}'失败：{e}");
-                panic!("加载命名配置失败");
+                panic!("加载命名配置'{section}'失败：{e}");
             }
         };
         result.insert(section, map);
@@ -98,11 +93,13 @@ pub fn load_named_setting(
 fn validate_key(key: &str) -> Result<(), ValidationError> {
     let len = key.chars().count();
     if len < 2 || len > 10 {
-        return Err(ValidationError::new("cfg_key_length"));
+        return Err(
+            ValidationError::new("cfg_key_length").with_message("长度应介于 2 到 10 之间".into())
+        );
     }
 
     if !key.chars().all(|c| c.is_ascii_alphabetic()) {
-        return Err(ValidationError::new("cfg_key"));
+        return Err(ValidationError::new("cfg_key").with_message("应为 ASCII 字母".into()));
     }
 
     Ok(())
@@ -126,10 +123,10 @@ pub struct SubscribeConfig {
     /// 缓存保留时长，单位秒
     pub retain: u64,
     /// 恢复最近命令操作记录的时长，单位分钟
-    #[validate(range(min = 2, max = 120))]
+    #[validate(range(min = 2, max = 120, message = "分钟时长应介于 2 到 120 之间"))]
     pub latest: i64,
     /// 信号量
-    #[validate(range(min = 7))]
+    #[validate(range(min = 7, message = "信号量至少为 7"))]
     pub sems: usize,
     /// 缓冲容量
     pub bufs: usize,
@@ -165,7 +162,7 @@ pub struct SendConfig {
     /// 缓存保留时长，单位秒
     pub retain: u64,
     /// 信号量
-    #[validate(range(min = 7))]
+    #[validate(range(min = 7, message = "信号量至少为 7"))]
     pub sems: usize,
     /// 缓冲容量
     pub bufs: usize,

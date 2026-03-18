@@ -5,7 +5,6 @@ use std::{
     sync::{OnceLock, RwLock},
 };
 use tokio::time::Duration;
-use tracing::error;
 use unis::{
     config::{self, NamedConfig, SendConfig, SubscribeConfig},
     domain,
@@ -20,8 +19,7 @@ fn load_name(cfg: &::config::Config) -> String {
     match cfg.get("name") {
         Ok(c) => c,
         Err(e) => {
-            error!("加载'name'配置失败：{e}");
-            panic!("加载'name'配置失败");
+            panic!("加载'name'配置失败：{e}");
         }
     }
 }
@@ -31,8 +29,7 @@ fn load_hostname(cfg: &::config::Config) -> String {
     match cfg.get("hostname") {
         Ok(c) => c,
         Err(e) => {
-            error!("加载'hostname'配置失败：{e}");
-            panic!("加载'hostname'配置失败");
+            panic!("加载'hostname'配置失败：{e}");
         }
     }
 }
@@ -42,8 +39,7 @@ fn load_bootstrap(cfg: &::config::Config) -> String {
     match cfg.get("bootstrap") {
         Ok(c) => c,
         Err(e) => {
-            error!("加载'bootstrap'配置失败：{e}");
-            panic!("加载'bootstrap'配置失败");
+            panic!("加载'bootstrap'配置失败：{e}");
         }
     }
 }
@@ -67,8 +63,7 @@ fn load_subscriber() -> SubscriberConfig {
     let tp = match cfg.get::<HashMap<String, String>>("tp") {
         Ok(c) => c,
         Err(e) => {
-            error!("加载聚合类型生产者配置失败：{e}");
-            panic!("加载聚合类型生产者配置失败");
+            panic!("加载聚合类型生产者配置失败：{e}");
         }
     };
     SubscriberConfig {
@@ -95,15 +90,13 @@ fn load_projector() -> ProjectorConfig {
     let pc = match cfg.get::<HashMap<String, String>>("pc") {
         Ok(c) => c,
         Err(e) => {
-            error!("加载投影消费者配置失败：{e}");
-            panic!("加载投影消费者配置失败");
+            panic!("加载投影消费者配置失败：{e}");
         }
     };
     let pp = match cfg.get::<HashMap<String, String>>("pp") {
         Ok(c) => c,
         Err(e) => {
-            error!("加载投影生产者配置失败：{e}");
-            panic!("加载投影生产者配置失败");
+            panic!("加载投影生产者配置失败：{e}");
         }
     };
     ProjectorConfig {
@@ -130,8 +123,7 @@ fn load_sender() -> SenderConfig {
     let cp = match cfg.get::<HashMap<String, String>>("cp") {
         Ok(c) => c,
         Err(e) => {
-            error!("加载聚合命令生产者配置失败：{e}");
-            panic!("加载聚合命令生产者配置失败");
+            panic!("加载聚合命令生产者配置失败：{e}");
         }
     };
     SenderConfig {
@@ -163,8 +155,7 @@ impl domain::Config for SubscriberConfig {
         {
             Ok(cfg) => cfg.clone(),
             Err(e) => {
-                error!("获取订阅者配置失败：{e}");
-                panic!("获取订阅者配置失败");
+                panic!("获取订阅者配置失败：{e}");
             }
         }
     }
@@ -173,15 +164,13 @@ impl domain::Config for SubscriberConfig {
         let cfg = match SUBSCRIBER.get() {
             Some(c) => c,
             None => {
-                error!("订阅者配置未初始化");
                 panic!("订阅者配置未初始化");
             }
         };
         let mut cell = match cfg.write() {
             Ok(c) => c,
             Err(e) => {
-                error!("订阅者配置重新加载失败：{e}");
-                panic!("订阅者配置重新加载失败");
+                panic!("订阅者配置重新加载失败：{e}");
             }
         };
         *cell = load_subscriber();
@@ -210,8 +199,7 @@ impl domain::Config for ProjectorConfig {
         {
             Ok(cfg) => cfg.clone(),
             Err(e) => {
-                error!("获取投影者配置失败：{e}");
-                panic!("获取投影者配置失败");
+                panic!("获取投影者配置失败：{e}");
             }
         }
     }
@@ -220,15 +208,13 @@ impl domain::Config for ProjectorConfig {
         let cfg = match PROJECTOR.get() {
             Some(c) => c,
             None => {
-                error!("投影者配置未初始化");
                 panic!("投影者配置未初始化");
             }
         };
         let mut cell = match cfg.write() {
             Ok(c) => c,
             Err(e) => {
-                error!("投影者配置重新加载失败：{e}");
-                panic!("投影者配置重新加载失败");
+                panic!("投影者配置重新加载失败：{e}");
             }
         };
         *cell = load_projector();
@@ -250,8 +236,7 @@ impl domain::Config for SenderConfig {
         match SENDER.get_or_init(|| RwLock::new(load_sender())).read() {
             Ok(cfg) => cfg.clone(),
             Err(e) => {
-                error!("获取发送者配置失败：{e}");
-                panic!("获取发送者配置失败");
+                panic!("获取发送者配置失败：{e}");
             }
         }
     }
@@ -260,15 +245,13 @@ impl domain::Config for SenderConfig {
         let cfg = match SENDER.get() {
             Some(c) => c,
             None => {
-                error!("发送者配置未初始化");
                 panic!("发送者配置未初始化");
             }
         };
         let mut cell = match cfg.write() {
             Ok(c) => c,
             Err(e) => {
-                error!("发送者配置重新加载失败：{e}");
-                panic!("发送者配置重新加载失败");
+                panic!("发送者配置重新加载失败：{e}");
             }
         };
         *cell = load_sender();

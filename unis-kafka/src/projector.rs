@@ -124,7 +124,6 @@ pub async fn launch(ctx: &'static unis::app::Context, topics: Vec<&'static str>)
         })
         .await;
     } else {
-        error!("重复启动投影");
         panic!("投影只能启动一次");
     }
 }
