@@ -1,7 +1,7 @@
 use axum::extract::{Path, State};
 use domain::transaction::*;
 use std::sync::Arc;
-use unis::{UniCommand, UniKey, UniResponse, sender::Sender};
+use unis::{UniCommand, UniKey, sender::Sender};
 use unis_kafka::{change_handler, create_handler};
 use uuid::Uuid;
 

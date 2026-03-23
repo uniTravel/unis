@@ -19,5 +19,7 @@ validator.workspace = true
 chrono.workspace = true
 
 [dev-dependencies]
+unis = { workspace = true, features = ["full"] }
+
 proptest.workspace = true
 proptest-state-machine.workspace = true

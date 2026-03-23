@@ -1,17 +1,15 @@
-use regex::Regex;
-use std::sync::LazyLock;
+use crate::validate;
 use unis::{
     domain::{Command, Event},
     errors::UniError,
     macros::{command, event},
 };
 
-static CODE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9]{6}$").unwrap());
-
 #[command]
 pub struct CreateAccount {
-    #[validate(regex(path = CODE_RE))]
+    #[validate(length(equal = 6), custom(function = "validate::code"))]
     pub code: String,
+    // #[validate(custom(function = "validate::code"))]
     pub owner: String,
 }
 

@@ -354,9 +354,9 @@ macro_rules! create_handler {
         pub async fn $func_name<F>(
             Path(com_id): Path<Uuid>,
             State(svc): State<Arc<crate::KafkaSender<$c>>>,
-            UniCommand(com, _): UniCommand<$com, F>,
-        ) -> UniResponse {
-            svc.create(com_id, <$c>::$variant(com)).await
+            UniCommand(com, lang, _): UniCommand<$com, F>,
+        ) -> unis::I18nResponse {
+            unis::I18nResponse(svc.create(com_id, <$c>::$variant(com)).await, lang)
         }
     };
 }
@@ -368,9 +368,9 @@ macro_rules! change_handler {
         pub async fn $func_name<F>(
             Path(UniKey { agg_id, com_id }): Path<UniKey>,
             State(svc): State<Arc<crate::KafkaSender<$c>>>,
-            UniCommand(com, _): UniCommand<$com, F>,
-        ) -> UniResponse {
-            svc.change(agg_id, com_id, <$c>::$variant(com)).await
+            UniCommand(com, lang, _): UniCommand<$com, F>,
+        ) -> unis::I18nResponse {
+            unis::I18nResponse(svc.change(agg_id, com_id, <$c>::$variant(com)).await, lang)
         }
     };
 }

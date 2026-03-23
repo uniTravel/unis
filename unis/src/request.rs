@@ -1,8 +1,8 @@
-use crate::domain::Command;
+use crate::{domain::Command, i18n};
 use axum::{
     body::Bytes,
-    extract::{FromRequest, Json},
-    http::StatusCode,
+    extract::{FromRequest, Json, Request},
+    http::{StatusCode, header::ACCEPT_LANGUAGE},
     response::{IntoResponse, Response},
 };
 use rkyv::{
@@ -33,7 +33,7 @@ pub struct JsonFormat;
 pub struct RkyvFormat;
 
 /// 解析命令请求体
-pub struct UniCommand<T, F>(pub T, pub PhantomData<F>);
+pub struct UniCommand<T, F>(pub T, pub String, pub PhantomData<F>);
 
 impl<T, S> FromRequest<S> for UniCommand<T, RkyvFormat>
 where
@@ -47,6 +47,7 @@ where
     type Rejection = Response;
 
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        let lang = extract_language(&req);
         let bytes = Bytes::from_request(req, state)
             .await
             .map_err(|e| e.into_response())?;
@@ -56,10 +57,16 @@ where
         let com = rkyv::from_bytes::<T, Error>(&aligned)
             .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?;
 
-        com.validate()
-            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?;
+        com.validate().map_err(|e| {
+            let mut result = String::new();
+            let err = match i18n::validation(&mut result, &e, &lang) {
+                Ok(()) => result,
+                Err(_) => e.to_string(),
+            };
+            (StatusCode::BAD_REQUEST, err).into_response()
+        })?;
 
-        Ok(UniCommand(com, PhantomData))
+        Ok(UniCommand(com, lang, PhantomData))
     }
 }
 
@@ -72,15 +79,33 @@ where
     type Rejection = Response;
 
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        let lang = extract_language(&req);
         let bytes = Bytes::from_request(req, state)
             .await
             .map_err(|e| e.into_response())?;
 
         let Json(com) = Json::<T>::from_bytes(&bytes).map_err(|e| e.into_response())?;
 
-        com.validate()
-            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?;
+        com.validate().map_err(|e| {
+            let mut result = String::new();
+            let err = match i18n::validation(&mut result, &e, &lang) {
+                Ok(()) => result,
+                Err(_) => e.to_string(),
+            };
+            (StatusCode::BAD_REQUEST, err).into_response()
+        })?;
 
-        Ok(UniCommand(com, PhantomData))
+        Ok(UniCommand(com, lang, PhantomData))
     }
+}
+
+fn extract_language(req: &Request) -> String {
+    req.headers()
+        .get(ACCEPT_LANGUAGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|ls| ls.split_once(',').map(|(l, _)| l))
+        .and_then(|l| l.split_once(';').map(|(t, _)| t))
+        .and_then(|t| t.split_once('-').map(|(primary, _)| primary))
+        .unwrap_or("zh")
+        .to_string()
 }

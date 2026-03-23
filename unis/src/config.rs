@@ -23,6 +23,22 @@ where
     }
 }
 
+#[cfg(feature = "sender")]
+pub(crate) fn i18n_config() -> Config {
+    let config_root = std::env::var("UNI_CONFIG_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or(PathBuf::from("./config"));
+    match Config::builder()
+        .add_source(File::from(config_root.join("i18n")).required(false))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            panic!("加载配置失败：{e}");
+        }
+    }
+}
+
 /// 构建配置
 pub fn build_config() -> Config {
     let config_root = std::env::var("UNI_CONFIG_ROOT")

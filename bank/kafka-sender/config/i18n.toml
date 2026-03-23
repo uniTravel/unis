@@ -1,0 +1,13 @@
+[response.zh]
+"success" = "成功"
+"validate" = "命令数据验证错误"
+"auth" = "身份验证错误"
+"timeout" = "请求超时"
+"conflict" = "被冲突的新命令取代"
+"duplicate" = "命令已执行成功"
+"check" = "命令无法应用到聚合"
+"code" = "序列化错误"
+"msg" = "消息处理错误"
+"write" = "写入事件流错误"
+"read" = "读取事件流错误"
+"send" = "写入命令流错误"

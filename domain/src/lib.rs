@@ -1,3 +1,5 @@
+mod validate;
+
 pub mod account;
 pub mod transaction;
 

@@ -3,11 +3,10 @@
 //!
 
 use crate::{
-    Com,
+    Com, UniResponse,
     config::SubscribeConfig,
     domain::{Aggregate, CommandEnum, EventEnum, Load},
     errors::UniError,
-    response::UniResponse,
     subscriber::{Restore, Stream},
 };
 use ahash::{AHashMap, AHashSet};
