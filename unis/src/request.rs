@@ -103,9 +103,9 @@ fn extract_language(req: &Request) -> String {
     req.headers()
         .get(ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
-        .and_then(|ls| ls.split_once(',').map(|(l, _)| l))
-        .and_then(|l| l.split_once(';').map(|(t, _)| t))
-        .and_then(|t| t.split_once('-').map(|(primary, _)| primary))
+        .and_then(|ls| ls.split(',').next())
+        .and_then(|l| l.split(';').next())
+        .and_then(|t| t.split('-').next())
         .unwrap_or("zh")
         .to_string()
 }

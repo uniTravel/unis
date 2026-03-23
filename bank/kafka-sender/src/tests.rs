@@ -1,4 +1,5 @@
 mod account;
+mod i18n;
 mod transaction;
 
 use crate::routes;

@@ -1,4 +1,5 @@
 use super::*;
+use axum::http::header::CONTENT_TYPE;
 
 #[rstest]
 #[tokio::test]
@@ -12,7 +13,7 @@ async fn create_account(#[future(awt)] app: Router, ctx: &'static Context) {
     let response = app
         .oneshot(
             Request::post(&create("/api/v1/rkyv/account", "create", com_id))
-                .header("Content-Type", "application/octet-stream")
+                .header(CONTENT_TYPE, "application/octet-stream")
                 .body(Body::from(rkyv::to_bytes::<Error>(&com).unwrap().to_vec()))
                 .unwrap(),
         )
@@ -39,7 +40,7 @@ async fn verify_account(#[future(awt)] app: Router, ctx: &'static Context) {
     let response = app
         .oneshot(
             Request::post(&change("/api/v1/rkyv/account", "verify", agg_id, com_id))
-                .header("Content-Type", "application/octet-stream")
+                .header(CONTENT_TYPE, "application/octet-stream")
                 .body(Body::from(rkyv::to_bytes::<Error>(&com).unwrap().to_vec()))
                 .unwrap(),
         )

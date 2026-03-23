@@ -7,9 +7,11 @@ use unis::{
 
 #[command]
 pub struct CreateAccount {
-    #[validate(length(equal = 6), custom(function = "validate::code"))]
+    #[validate(
+        length(equal = 6, code = "exact_length"),
+        custom(function = "validate::code")
+    )]
     pub code: String,
-    // #[validate(custom(function = "validate::code"))]
     pub owner: String,
 }
 

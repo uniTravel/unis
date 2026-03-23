@@ -11,3 +11,31 @@
 "write" = "写入事件流错误"
 "read" = "读取事件流错误"
 "send" = "写入命令流错误"
+
+[response.en]
+"success" = "success"
+"validate" = "validate error"
+"auth" = "auth error"
+"timeout" = "request timeout"
+"conflict" = "被冲突的新命令取代"
+"duplicate" = "command success"
+"check" = "check error"
+"code" = "encode/decode error"
+"msg" = "message error"
+"write" = "write error"
+"read" = "read error"
+"send" = "send error"
+
+[validation.zh]
+"required" = "必填"
+"min_length" = "最小长度为 {min}"
+"max_length" = "最大长度为 {max}"
+"exact_length" = "长度应为 {equal}"
+"ascii_digit" = "应为 ASCII 数字"
+
+[validation.en]
+"required" = "required"
+"min_length" = "min lenth is {min}"
+"max_length" = "max lenth is {max}"
+"exact_length" = "length should be {equal}"
+"ascii_digit" = "should be ASCII digit"
