@@ -1,3 +1,4 @@
+use crate::validate;
 use chrono::Local;
 use unis::{
     domain::{Command, Event},
@@ -7,8 +8,11 @@ use unis::{
 
 #[command]
 pub struct OpenPeriod {
+    #[validate(
+        length(equal = 6, code = "exact_length"),
+        custom(function = "validate::code")
+    )]
     pub account_code: String,
-    pub period: String,
 }
 
 impl Command for OpenPeriod {

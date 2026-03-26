@@ -1,3 +1,4 @@
+use crate::validate;
 use unis::{
     domain::{Command, Event},
     errors::UniError,
@@ -6,7 +7,12 @@ use unis::{
 
 #[command]
 pub struct TransferIn {
+    #[validate(
+        length(equal = 6, code = "exact_length"),
+        custom(function = "validate::code")
+    )]
     pub out_code: String,
+    #[validate(range(min = 1, code = "min_num"))]
     pub amount: i64,
 }
 

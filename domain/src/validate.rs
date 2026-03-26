@@ -1,11 +1,6 @@
 use validator::ValidationError;
 
-#[allow(dead_code)]
-mod codes {
-    pub const REQUIRED: &str = "required";
-    pub const MIN_LENGTH: &str = "min_length";
-    pub const MAX_LENGTH: &str = "max_length";
-    pub const EXACT_LENGTH: &str = "exact_length";
+pub(crate) mod codes {
     pub const ASCII_DIGIT: &str = "ascii_digit";
 }
 

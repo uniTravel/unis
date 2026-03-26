@@ -1,3 +1,4 @@
+use crate::validate;
 use chrono::Local;
 use unis::{
     domain::{Command, Event},
@@ -7,7 +8,12 @@ use unis::{
 
 #[command]
 pub struct InitPeriod {
+    #[validate(
+        length(equal = 6, code = "exact_length"),
+        custom(function = "validate::code")
+    )]
     pub account_code: String,
+    #[validate(range(min = 10_000, max = 10_000_000, code = "range_num"))]
     pub limit: i64,
 }
 

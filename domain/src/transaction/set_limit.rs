@@ -6,8 +6,11 @@ use unis::{
 
 #[command]
 pub struct SetLimit {
+    #[validate(range(min = 10_000, max = 10_000_000, code = "range_num"))]
     pub limit: i64,
+    #[validate(range(min = 10_000, max = 10_000_000, code = "range_num"))]
     pub trans_limit: i64,
+    #[validate(range(min = 0, code = "min_num"))]
     pub balance: i64,
 }
 

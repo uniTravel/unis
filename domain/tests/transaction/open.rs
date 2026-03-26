@@ -1,31 +1,28 @@
 use crate::*;
-use domain::account::CreateAccount;
+use domain::transaction::OpenPeriod;
 use proptest::prelude::*;
 
 prop_compose! {
     fn valid_com() (
-        code in digit_string(6),
-        owner in any::<String>()
-    ) -> CreateAccount {
-        CreateAccount { code, owner }
+        account_code in digit_string(6)
+    ) -> OpenPeriod {
+        OpenPeriod { account_code }
     }
 }
 
 prop_compose! {
     fn invalid_code_length() (
-        code in prop_oneof![short_string(5), long_string(7)],
-        owner in any::<String>()
-    ) -> CreateAccount {
-        CreateAccount { code, owner }
+        account_code in prop_oneof![short_string(5), long_string(7)]
+    ) -> OpenPeriod {
+        OpenPeriod { account_code }
     }
 }
 
 prop_compose! {
     fn invalid_code_type() (
-        code in prop::string::string_regex("[^0-9]{6}").unwrap(),
-        owner in any::<String>()
-    ) -> CreateAccount {
-        CreateAccount { code, owner }
+        account_code in prop::string::string_regex("[^0-9]{6}").unwrap()
+    ) -> OpenPeriod {
+        OpenPeriod { account_code }
     }
 }
 

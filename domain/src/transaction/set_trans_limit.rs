@@ -6,6 +6,7 @@ use unis::{
 
 #[command]
 pub struct SetTransLimit {
+    #[validate(range(min = 10_000, max = 10_000_000, code = "range_num"))]
     pub trans_limit: i64,
 }
 

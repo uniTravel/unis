@@ -6,6 +6,7 @@ use unis::{
 
 #[command]
 pub struct Withdraw {
+    #[validate(range(min = 1, code = "min_num"))]
     pub amount: i64,
 }
 

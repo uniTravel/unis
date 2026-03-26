@@ -8,7 +8,7 @@ use unis::{
 pub struct ApproveAccount {
     pub approved_by: String,
     pub approved: bool,
-    #[validate(range(min = 10000, max = 10000000))]
+    #[validate(range(min = 10_000, max = 10_000_000, code = "range_num"))]
     pub limit: i64,
 }
 
