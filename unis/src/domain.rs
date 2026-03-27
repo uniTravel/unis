@@ -48,7 +48,7 @@ pub trait Event: Archive + 'static {
 }
 
 /// 命令特征
-pub trait Command: Archive + Sized + 'static {
+pub trait Command: Archive + Sized + Clone + 'static {
     /// 聚合类型
     type A: Aggregate;
     /// 事件类型
@@ -103,6 +103,7 @@ pub trait CommandEnum:
     + Archive
     + Sized
     + Sync
+    + Clone
     + for<'m> Serialize<Strategy<Serializer<AlignedVec, ArenaHandle<'m>, Share>, Error>>
     + 'static
 where

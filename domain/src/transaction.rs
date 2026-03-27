@@ -18,13 +18,21 @@ pub use transfer_in::TransferIn;
 pub use transfer_out::TransferOut;
 pub use withdraw::Withdraw;
 
-use crate::Transaction;
 use unis::{
     domain::{Command, CommandEnum, Event, Load},
     errors::UniError,
-    macros::{command_enum, event_enum},
+    macros::{aggregate, command_enum, event_enum},
 };
 use uuid::Uuid;
+
+#[aggregate]
+pub struct Transaction {
+    account_code: String,
+    balance: i64,
+    period: String,
+    limit: i64,
+    trans_limit: i64,
+}
 
 #[event_enum(Transaction)]
 pub enum TransactionEvent {

@@ -50,3 +50,29 @@ impl Event for AccountVerified {
         agg.verify_conclusion = self.conclusion;
     }
 }
+
+#[cfg(test)]
+pub(super) mod tests {
+    use super::*;
+    use crate::tests::*;
+    use proptest::prelude::*;
+
+    prop_compose! {
+        pub fn valid_com() (
+            verified_by in any::<String>(),
+            conclusion in prop::bool::ANY
+        ) -> VerifyAccount {
+            VerifyAccount { verified_by, conclusion }
+        }
+    }
+
+    proptest! {
+        #![proptest_config(proptest_config())]
+
+        #[test]
+        fn valid_command(com in valid_com()) {
+            let result = unis::validate(&com, "zh");
+            prop_assert!(result.is_ok());
+        }
+    }
+}

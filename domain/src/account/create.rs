@@ -45,3 +45,61 @@ impl Event for AccountCreated {
         agg.owner = self.owner.clone();
     }
 }
+
+#[cfg(test)]
+pub(super) mod tests {
+    use super::*;
+    use crate::tests::*;
+    use proptest::prelude::*;
+
+    prop_compose! {
+        pub fn valid_com() (
+            code in digit_string(6),
+            owner in any::<String>()
+        ) -> CreateAccount {
+            CreateAccount { code, owner }
+        }
+    }
+
+    prop_compose! {
+        fn invalid_code_length() (
+            code in prop_oneof![short_string(5), long_string(7)],
+            owner in any::<String>()
+        ) -> CreateAccount {
+            CreateAccount { code, owner }
+        }
+    }
+
+    prop_compose! {
+        fn invalid_code_type() (
+            code in prop::string::string_regex("[^0-9]{6}").unwrap(),
+            owner in any::<String>()
+        ) -> CreateAccount {
+            CreateAccount { code, owner }
+        }
+    }
+
+    proptest! {
+        #![proptest_config(proptest_config())]
+
+        #[test]
+        fn valid_command(com in valid_com()) {
+            let result = unis::validate(&com, "zh");
+            prop_assert!(result.is_ok());
+        }
+
+        #[test]
+        fn code_length(com in invalid_code_length()) {
+            let result = unis::validate(&com, "zh");
+            prop_assert!(result.is_err());
+            prop_assert!(result.unwrap_err().contains("长度应为 6"));
+        }
+
+        #[test]
+        fn code_type(com in invalid_code_type()) {
+            let result = unis::validate(&com, "zh");
+            prop_assert!(result.is_err());
+            prop_assert!(result.unwrap_err().contains("应为 ASCII 数字"));
+        }
+    }
+}
