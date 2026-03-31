@@ -48,6 +48,7 @@ impl Event for PeriodInited {
         agg.account_code = self.account_code.clone();
         agg.period = self.period.clone();
         agg.limit = self.limit;
+        agg.trans_limit = self.limit;
     }
 }
 

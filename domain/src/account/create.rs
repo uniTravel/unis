@@ -12,6 +12,7 @@ pub struct CreateAccount {
         custom(function = "validate::code")
     )]
     pub code: String,
+    #[validate(length(min = 1))]
     pub owner: String,
 }
 
@@ -55,7 +56,7 @@ pub(super) mod tests {
     prop_compose! {
         pub fn valid_com() (
             code in digit_string(6),
-            owner in any::<String>()
+            owner in long_string(1)
         ) -> CreateAccount {
             CreateAccount { code, owner }
         }
@@ -64,7 +65,7 @@ pub(super) mod tests {
     prop_compose! {
         fn invalid_code_length() (
             code in prop_oneof![short_string(5), long_string(7)],
-            owner in any::<String>()
+            owner in long_string(1)
         ) -> CreateAccount {
             CreateAccount { code, owner }
         }
@@ -73,7 +74,7 @@ pub(super) mod tests {
     prop_compose! {
         fn invalid_code_type() (
             code in prop::string::string_regex("[^0-9]{6}").unwrap(),
-            owner in any::<String>()
+            owner in long_string(1)
         ) -> CreateAccount {
             CreateAccount { code, owner }
         }

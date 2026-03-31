@@ -1,12 +1,17 @@
-use crate::domain::Command;
-use serde::de::DeserializeOwned;
 use std::{
     borrow::Cow,
     collections::HashMap,
     fmt::{self, Write},
     sync::LazyLock,
 };
-use validator::{Validate, ValidationError, ValidationErrors, ValidationErrorsKind};
+use validator::{ValidationError, ValidationErrors, ValidationErrorsKind};
+
+#[cfg(any(test, feature = "test-utils"))]
+use crate::domain::Command;
+#[cfg(any(test, feature = "test-utils"))]
+use serde::de::DeserializeOwned;
+#[cfg(any(test, feature = "test-utils"))]
+use validator::Validate;
 
 static CONFIG: LazyLock<config::Config> = LazyLock::new(|| crate::config::i18n_config());
 

@@ -6,8 +6,9 @@ use unis::{
 
 #[command]
 pub struct VerifyAccount {
+    #[validate(length(min = 1))]
     pub verified_by: String,
-    pub conclusion: bool,
+    pub verified: bool,
 }
 
 impl Command for VerifyAccount {
@@ -15,10 +16,13 @@ impl Command for VerifyAccount {
     type E = AccountVerified;
 
     fn check(&self, agg: &Self::A) -> Result<(), UniError> {
-        if agg.verified {
+        if agg.code.is_empty() {
+            return Err(UniError::CheckError("尚未创建，不能审核".to_string()));
+        }
+        if !agg.verified_by.is_empty() {
             return Err(UniError::CheckError(format!(
                 "已经审核，结论为 {}",
-                agg.verify_conclusion
+                agg.verified
             )));
         }
 
@@ -28,8 +32,7 @@ impl Command for VerifyAccount {
     fn apply(self, _agg: &Self::A) -> Self::E {
         Self::E {
             verified_by: self.verified_by,
-            verified: true,
-            conclusion: self.conclusion,
+            verified: self.verified,
         }
     }
 }
@@ -38,7 +41,6 @@ impl Command for VerifyAccount {
 pub struct AccountVerified {
     verified_by: String,
     verified: bool,
-    conclusion: bool,
 }
 
 impl Event for AccountVerified {
@@ -47,7 +49,6 @@ impl Event for AccountVerified {
     fn apply(&self, agg: &mut Self::A) {
         agg.verified_by = self.verified_by.clone();
         agg.verified = self.verified;
-        agg.verify_conclusion = self.conclusion;
     }
 }
 
@@ -59,10 +60,10 @@ pub(super) mod tests {
 
     prop_compose! {
         pub fn valid_com() (
-            verified_by in any::<String>(),
-            conclusion in prop::bool::ANY
+            verified_by in long_string(1),
+            verified in prop::bool::ANY
         ) -> VerifyAccount {
-            VerifyAccount { verified_by, conclusion }
+            VerifyAccount { verified_by, verified }
         }
     }
 

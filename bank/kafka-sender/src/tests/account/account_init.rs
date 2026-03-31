@@ -32,7 +32,7 @@ async fn create_account(#[future(awt)] app: Router, ctx: &'static Context) {
 async fn verify_account(#[future(awt)] app: Router, ctx: &'static Context) {
     let com = VerifyAccount {
         verified_by: "李四".to_string(),
-        conclusion: true,
+        verified: true,
     };
     let agg_id = Uuid::new_v4();
     let com_id = Uuid::new_v4();

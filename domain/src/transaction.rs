@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 mod change_limit;
 mod deposit;
 mod init;

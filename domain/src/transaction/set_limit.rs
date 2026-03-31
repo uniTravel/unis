@@ -19,6 +19,9 @@ impl Command for SetLimit {
     type E = LimitSetted;
 
     fn check(&self, agg: &Self::A) -> Result<(), UniError> {
+        if agg.account_code.is_empty() {
+            return Err(UniError::CheckError("交易期间尚未生效".to_string()));
+        }
         if agg.limit != 0 {
             return Err(UniError::CheckError("不得重复设置限额".to_string()));
         }

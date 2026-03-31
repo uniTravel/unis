@@ -18,6 +18,10 @@ impl Command for SetTransLimit {
         if self.trans_limit > agg.limit {
             return Err(UniError::CheckError("交易限额不得超过控制限额".to_string()));
         }
+        if self.trans_limit == agg.trans_limit {
+            return Err(UniError::CheckError("交易限额无变化".to_string()));
+        }
+
         Ok(())
     }
 

@@ -18,6 +18,9 @@ impl Command for ChangeLimit {
         if agg.limit == 0 {
             return Err(UniError::CheckError("待修改限额须大于零".to_string()));
         }
+        if self.limit == agg.limit {
+            return Err(UniError::CheckError("限额无变化".to_string()));
+        }
 
         Ok(())
     }

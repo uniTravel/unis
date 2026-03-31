@@ -6,6 +6,7 @@ use unis::{
 
 #[command]
 pub struct ApproveAccount {
+    #[validate(length(min = 1))]
     pub approved_by: String,
     pub approved: bool,
     #[validate(range(min = 10_000, max = 10_000_000, code = "range_num"))]
@@ -17,8 +18,14 @@ impl Command for ApproveAccount {
     type E = AccountApproved;
 
     fn check(&self, agg: &Self::A) -> Result<(), UniError> {
-        if !agg.verify_conclusion {
+        if !agg.verified {
             return Err(UniError::CheckError("审核未通过".to_string()));
+        }
+        if !agg.approved_by.is_empty() {
+            return Err(UniError::CheckError(format!(
+                "已经审批，结论为 {}",
+                agg.approved
+            )));
         }
 
         Ok(())
@@ -60,7 +67,7 @@ pub(super) mod tests {
 
     prop_compose! {
         pub fn valid_com() (
-            approved_by in any::<String>(),
+            approved_by in long_string(1),
             approved in prop::bool::ANY,
             limit in 10_000..10_000_000i64
         ) -> ApproveAccount {
@@ -70,7 +77,7 @@ pub(super) mod tests {
 
     prop_compose! {
         fn invalid_limit_range() (
-            approved_by in any::<String>(),
+            approved_by in long_string(1),
             approved in prop::bool::ANY,
             limit in prop_oneof![..10_000i64, 10_000_000..i64::MAX]
         ) -> ApproveAccount {
