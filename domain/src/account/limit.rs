@@ -50,7 +50,6 @@ impl Event for AccountLimited {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
-    use crate::tests::*;
     use proptest::prelude::*;
 
     prop_compose! {
@@ -70,8 +69,6 @@ pub(super) mod tests {
     }
 
     proptest! {
-        #![proptest_config(proptest_config())]
-
         #[test]
         fn valid_command(com in valid_com()) {
             let result = unis::validate(&com, "zh");

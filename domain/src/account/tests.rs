@@ -1,5 +1,4 @@
 use super::*;
-use crate::tests::*;
 use proptest::prelude::*;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 use unis::domain::{Aggregate, Command};
@@ -175,8 +174,6 @@ prop_state_machine! {
 }
 
 proptest! {
-    #![proptest_config(proptest_config())]
-
     #[test]
     fn state_account_init(
         verify_account in verify::tests::valid_com(),
