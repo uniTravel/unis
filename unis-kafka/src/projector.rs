@@ -1,7 +1,8 @@
 //! # Kafka 投影者
 
 use crate::config::ProjectorConfig;
-use ahash::AHashMap;
+use ahash::{AHashMap, RandomState};
+use dashmap::DashMap;
 use rdkafka::{
     ClientConfig, Message, TopicPartitionList,
     consumer::{Consumer, StreamConsumer},
@@ -12,7 +13,7 @@ use rdkafka::{
 use std::{
     any::TypeId,
     sync::{
-        Arc, LazyLock, Mutex,
+        Arc, LazyLock,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -41,11 +42,15 @@ where
     A: Aggregate + 'static,
 {
     fn topic() -> &'static str {
-        static CACHE: LazyLock<Mutex<AHashMap<TypeId, &'static str>>> =
-            LazyLock::new(|| Mutex::new(AHashMap::new()));
+        static CACHE: LazyLock<DashMap<TypeId, &'static str, RandomState>> =
+            LazyLock::new(|| DashMap::with_hasher(RandomState::new()));
         let type_id = TypeId::of::<A>();
-        let mut cache = CACHE.lock().unwrap();
-        cache.entry(type_id).or_insert_with(|| {
+
+        if let Some(entry) = CACHE.get(&type_id) {
+            return &entry;
+        }
+
+        &CACHE.entry(type_id).or_insert_with(|| {
             let agg_type = A::type_name();
             let topic = format!("{}.{}", PROJECTOR_CONFIG.name, agg_type);
             Box::leak(Box::new(topic))

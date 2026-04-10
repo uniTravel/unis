@@ -1,7 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc 3ed753bee4536049606ebc7ff635c6e8d30ea7a30d57a2ace872e23781fec842 # shrinks to (initial_state, transitions, seen_counter) = (RefAccount { code: "", limit: 0, verified_by: "", verified: false, approved_by: "", approved: false }, [Verify(VerifyAccount { verified_by: "¡", verified: true }), Approve(ApproveAccount { approved_by: "a", approved: false, limit: 10000 })], None)

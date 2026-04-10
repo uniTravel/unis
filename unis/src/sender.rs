@@ -30,18 +30,9 @@ where
     /// 请求处理回复
     fn send(&self, todo: Todo<A, C, E>) -> Result<(), SendError<Todo<A, C, E>>>;
 
-    /// 发送创建聚合命令
-    #[inline]
-    fn create(&self, com_id: Uuid, com: C) -> impl Future<Output = UniResponse> {
-        async move {
-            let agg_id = Uuid::new_v4();
-            self.change(agg_id, com_id, com).await
-        }
-    }
-
-    /// 发送变更聚合命令
+    /// 发送聚合命令
     #[instrument(name = "send_command", skip_all, fields(topic = self.topic(), %agg_id, %com_id))]
-    fn change(&self, agg_id: Uuid, com_id: Uuid, com: C) -> impl Future<Output = UniResponse> {
+    fn apply(&self, agg_id: Uuid, com_id: Uuid, com: C) -> impl Future<Output = UniResponse> {
         async move {
             let (res_tx, res_rx) = oneshot::channel::<UniResponse>();
             if let Err(e) = self.send(Todo::Reply {
@@ -120,12 +111,65 @@ macro_rules! route_builder {
 
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
-pub fn create(path: &str, op: &str, com_id: uuid::Uuid) -> String {
-    format!("{path}/{op}/{com_id}")
+pub async fn create(
+    app: axum::Router,
+    path: &str,
+    op: &str,
+    com_id: uuid::Uuid,
+    com: impl crate::domain::Command
+    + for<'a> rkyv::Serialize<
+        rkyv::rancor::Strategy<
+            rkyv::ser::Serializer<
+                rkyv::util::AlignedVec,
+                rkyv::ser::allocator::ArenaHandle<'a>,
+                rkyv::ser::sharing::Share,
+            >,
+            rkyv::rancor::Error,
+        >,
+    >,
+) -> Result<axum::response::Response<axum::body::Body>, std::convert::Infallible> {
+    let path = format!("{path}/{op}/{com_id}");
+    tower::ServiceExt::oneshot(
+        app,
+        axum::http::Request::post(path)
+            .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
+            .body(axum::body::Body::from(
+                rkyv::to_bytes::<Error>(&com).unwrap().to_vec(),
+            ))
+            .unwrap(),
+    )
+    .await
 }
 
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
-pub fn change(path: &str, op: &str, agg_id: uuid::Uuid, com_id: uuid::Uuid) -> String {
-    format!("{path}/{op}/{agg_id}/{com_id}")
+pub async fn change(
+    app: axum::Router,
+    path: &str,
+    op: &str,
+    agg_id: uuid::Uuid,
+    com_id: uuid::Uuid,
+    com: impl crate::domain::Command
+    + for<'a> rkyv::Serialize<
+        rkyv::rancor::Strategy<
+            rkyv::ser::Serializer<
+                rkyv::util::AlignedVec,
+                rkyv::ser::allocator::ArenaHandle<'a>,
+                rkyv::ser::sharing::Share,
+            >,
+            rkyv::rancor::Error,
+        >,
+    >,
+) -> Result<axum::response::Response<axum::body::Body>, std::convert::Infallible> {
+    let path = format!("{path}/{op}/{agg_id}/{com_id}");
+    tower::ServiceExt::oneshot(
+        app,
+        axum::http::Request::post(path)
+            .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
+            .body(axum::body::Body::from(
+                rkyv::to_bytes::<Error>(&com).unwrap().to_vec(),
+            ))
+            .unwrap(),
+    )
+    .await
 }

@@ -9,4 +9,4 @@ bootstrap = "localhost:30001,localhost:30002,localhost:30003"
 "group.protocol" = "consumer"
 
 [pp]
-"linger.ms" = "1"
+"linger.ms" = "5"

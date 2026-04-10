@@ -8,7 +8,8 @@ mod tests;
 mod topic;
 
 use crate::config::SubscriberConfig;
-use ahash::AHashMap;
+use ahash::RandomState;
+use dashmap::DashMap;
 use rdkafka::{
     ClientConfig, Message,
     consumer::{Consumer, StreamConsumer},
@@ -22,7 +23,7 @@ use rkyv::{
 use std::{
     any::TypeId,
     marker::PhantomData,
-    sync::{Arc, LazyLock, Mutex},
+    sync::{Arc, LazyLock},
 };
 use stream::Writer;
 use tokio::sync::{Notify, mpsc};
@@ -49,11 +50,15 @@ where
     A: Aggregate + 'static,
 {
     fn topic() -> &'static str {
-        static CACHE: LazyLock<Mutex<AHashMap<TypeId, &'static str>>> =
-            LazyLock::new(|| Mutex::new(AHashMap::new()));
+        static CACHE: LazyLock<DashMap<TypeId, &'static str, RandomState>> =
+            LazyLock::new(|| DashMap::with_hasher(RandomState::new()));
         let type_id = TypeId::of::<A>();
-        let mut cache = CACHE.lock().unwrap();
-        cache.entry(type_id).or_insert_with(|| {
+
+        if let Some(entry) = CACHE.get(&type_id) {
+            return &entry;
+        }
+
+        &CACHE.entry(type_id).or_insert_with(|| {
             let agg_type = A::type_name();
             let cfg_name = agg_type.rsplit(".").next().unwrap();
             let cfg = SUBSCRIBER_CONFIG.subscriber.get(cfg_name);
@@ -63,11 +68,15 @@ where
     }
 
     fn topic_com() -> &'static str {
-        static CACHE: LazyLock<Mutex<AHashMap<TypeId, &'static str>>> =
-            LazyLock::new(|| Mutex::new(AHashMap::new()));
+        static CACHE: LazyLock<DashMap<TypeId, &'static str, RandomState>> =
+            LazyLock::new(|| DashMap::with_hasher(RandomState::new()));
         let type_id = TypeId::of::<A>();
-        let mut cache = CACHE.lock().unwrap();
-        cache.entry(type_id).or_insert_with(|| {
+
+        if let Some(entry) = CACHE.get(&type_id) {
+            return &entry;
+        }
+
+        &CACHE.entry(type_id).or_insert_with(|| {
             let topic_com = format!("{}-command", Self::topic());
             Box::leak(Box::new(topic_com))
         })

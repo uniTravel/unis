@@ -175,12 +175,48 @@ prop_state_machine! {
 
 proptest! {
     #[test]
-    fn state_account_init(
+    fn start_account(
         verify_account in verify::tests::valid_com(),
         approve_account in approve::tests::valid_com(),
         limit_account in limit::tests::valid_com(),
     ) {
         let mut agg = Account::new(uuid::Uuid::new_v4());
+
+        prop_assert!(verify_account.process(&mut agg).is_err());
+        prop_assert!(approve_account.process(&mut agg).is_err());
+        prop_assert!(limit_account.process(&mut agg).is_err());
+    }
+
+    #[test]
+    fn stop_account_verified_false(
+        create_account in create::tests::valid_com(),
+        verify_account in verify::tests::valid_com(),
+        approve_account in approve::tests::valid_com(),
+        limit_account in limit::tests::valid_com(),
+    ) {
+        let mut agg = Account::new(uuid::Uuid::new_v4());
+        prop_assert!(create_account.process(&mut agg).is_ok());
+        prop_assert!(verify_account.clone().process(&mut agg).is_ok());
+        agg.verified = false;
+
+        prop_assert!(verify_account.process(&mut agg).is_err());
+        prop_assert!(approve_account.process(&mut agg).is_err());
+        prop_assert!(limit_account.process(&mut agg).is_err());
+    }
+
+    #[test]
+    fn stop_account_approved_false(
+        create_account in create::tests::valid_com(),
+        verify_account in verify::tests::valid_com(),
+        approve_account in approve::tests::valid_com(),
+        limit_account in limit::tests::valid_com(),
+    ) {
+        let mut agg = Account::new(uuid::Uuid::new_v4());
+        prop_assert!(create_account.process(&mut agg).is_ok());
+        prop_assert!(verify_account.clone().process(&mut agg).is_ok());
+        agg.verified = true;
+        prop_assert!(approve_account.clone().process(&mut agg).is_ok());
+        agg.approved = false;
 
         prop_assert!(verify_account.process(&mut agg).is_err());
         prop_assert!(approve_account.process(&mut agg).is_err());
@@ -216,28 +252,10 @@ proptest! {
     }
 
     #[test]
-    fn state_account_verified_false(
-        create_account in create::tests::valid_com(),
-        verify_account in verify::tests::valid_com(),
-        approve_account in approve::tests::valid_com(),
-        limit_account in limit::tests::valid_com(),
-    ) {
-        let mut agg = Account::new(uuid::Uuid::new_v4());
-        prop_assert!(create_account.process(&mut agg).is_ok());
-        prop_assert!(verify_account.clone().process(&mut agg).is_ok());
-        agg.verified = false;
-
-        prop_assert!(verify_account.process(&mut agg).is_err());
-        prop_assert!(approve_account.process(&mut agg).is_err());
-        prop_assert!(limit_account.process(&mut agg).is_err());
-    }
-
-    #[test]
     fn state_account_approved_true(
         create_account in create::tests::valid_com(),
         verify_account in verify::tests::valid_com(),
         approve_account in approve::tests::valid_com(),
-        limit_account in limit::tests::valid_com(),
     ) {
         let mut agg = Account::new(uuid::Uuid::new_v4());
         prop_assert!(create_account.process(&mut agg).is_ok());
@@ -248,30 +266,23 @@ proptest! {
 
         prop_assert!(verify_account.process(&mut agg).is_err());
         prop_assert!(approve_account.process(&mut agg).is_err());
-
-        if limit_account.limit == agg.limit {
-            prop_assert!(limit_account.process(&mut agg).is_err());
-        } else {
-            prop_assert!(limit_account.process(&mut agg).is_ok());
-        }
     }
 
     #[test]
-    fn state_account_approved_false(
+    fn limit_account_restrict(
         create_account in create::tests::valid_com(),
         verify_account in verify::tests::valid_com(),
         approve_account in approve::tests::valid_com(),
-        limit_account in limit::tests::valid_com(),
+        mut limit_account in limit::tests::valid_com(),
     ) {
         let mut agg = Account::new(uuid::Uuid::new_v4());
         prop_assert!(create_account.process(&mut agg).is_ok());
         prop_assert!(verify_account.clone().process(&mut agg).is_ok());
         agg.verified = true;
         prop_assert!(approve_account.clone().process(&mut agg).is_ok());
-        agg.approved = false;
+        agg.approved = true;
 
-        prop_assert!(verify_account.process(&mut agg).is_err());
-        prop_assert!(approve_account.process(&mut agg).is_err());
+        limit_account.limit = agg.limit;
         prop_assert!(limit_account.process(&mut agg).is_err());
     }
 }

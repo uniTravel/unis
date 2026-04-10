@@ -24,7 +24,7 @@ unis = { workspace = true, features = ["test-utils"] }
 unis-kafka = { workspace = true }
 
 rstest.workspace = true
+proptest.workspace = true
 uuid.workspace = true
 rkyv.workspace = true
 serde.workspace = true
-tower = { version = "0.5", features = ["util"] }

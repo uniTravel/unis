@@ -21,14 +21,12 @@ impl std::fmt::Display for UniResponse {
 }
 
 /// 国际化的命令处理结果
-pub struct I18nResponse(pub UniResponse, pub String);
+pub struct I18nResponse(pub UniResponse, pub String, pub uuid::Uuid);
 
 impl IntoResponse for I18nResponse {
     fn into_response(self) -> axum::response::Response {
         match self.0 {
-            UniResponse::Success => {
-                (StatusCode::OK, i18n::response("success", &self.1)).into_response()
-            }
+            UniResponse::Success => (StatusCode::OK, self.2.to_string()).into_response(),
             UniResponse::ValidateError => {
                 (StatusCode::BAD_REQUEST, i18n::response("validate", &self.1)).into_response()
             }

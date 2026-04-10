@@ -1,7 +1,8 @@
 //! # Kafka 发送者
 
 use crate::config::SenderConfig;
-use ahash::AHashMap;
+use ahash::RandomState;
+use dashmap::DashMap;
 use rdkafka::{
     ClientConfig, Message,
     consumer::{Consumer, StreamConsumer},
@@ -17,7 +18,7 @@ use rkyv::{
 use std::{
     any::TypeId,
     marker::PhantomData,
-    sync::{Arc, LazyLock, Mutex},
+    sync::{Arc, LazyLock},
 };
 use tokio::{
     sync::{Notify, mpsc, oneshot},
@@ -63,11 +64,15 @@ where
     A: Aggregate + 'static,
 {
     fn topic() -> &'static str {
-        static CACHE: LazyLock<Mutex<AHashMap<TypeId, &'static str>>> =
-            LazyLock::new(|| Mutex::new(AHashMap::new()));
+        static CACHE: LazyLock<DashMap<TypeId, &'static str, RandomState>> =
+            LazyLock::new(|| DashMap::with_hasher(RandomState::new()));
         let type_id = TypeId::of::<A>();
-        let mut cache = CACHE.lock().unwrap();
-        cache.entry(type_id).or_insert_with(|| {
+
+        if let Some(entry) = CACHE.get(&type_id) {
+            return &entry;
+        }
+
+        &CACHE.entry(type_id).or_insert_with(|| {
             let agg_type = A::type_name();
             let cfg_name = agg_type.rsplit(".").next().unwrap();
             let cfg = SENDER_CONFIG.sender.get(cfg_name);
@@ -77,11 +82,15 @@ where
     }
 
     fn topic_com() -> &'static str {
-        static CACHE: LazyLock<Mutex<AHashMap<TypeId, &'static str>>> =
-            LazyLock::new(|| Mutex::new(AHashMap::new()));
+        static CACHE: LazyLock<DashMap<TypeId, &'static str, RandomState>> =
+            LazyLock::new(|| DashMap::with_hasher(RandomState::new()));
         let type_id = TypeId::of::<A>();
-        let mut cache = CACHE.lock().unwrap();
-        cache.entry(type_id).or_insert_with(|| {
+
+        if let Some(entry) = CACHE.get(&type_id) {
+            return &entry;
+        }
+
+        &CACHE.entry(type_id).or_insert_with(|| {
             let topic_com = format!("{}-command", Self::topic());
             Box::leak(Box::new(topic_com))
         })
@@ -194,14 +203,17 @@ where
         notify: Arc<Notify>,
     ) {
         let mut arena = Arena::new();
-        let mut rs: AHashMap<
-            Uuid,
-            (
-                Option<oneshot::Sender<UniResponse>>,
-                Option<UniResponse>,
-                Instant,
-            ),
-        > = AHashMap::new();
+        let rs: Arc<
+            DashMap<
+                Uuid,
+                (
+                    Option<oneshot::Sender<UniResponse>>,
+                    Option<UniResponse>,
+                    Instant,
+                ),
+                RandomState,
+            >,
+        > = Arc::new(DashMap::with_hasher(RandomState::new()));
         let start = Instant::now();
         let mut interval = interval_at(start, Duration::from_secs(cfg.interval));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -221,43 +233,47 @@ where
                 }
                 data = rx.recv() => match data {
                     Some(Todo::Reply { agg_id, com_id, com, res_tx }) => match rs.remove(&com_id) {
-                        Some((Some(rep), None, _)) => {
+                        Some((_, (Some(rep), None, _))) => {
                             let _ = rep.send(UniResponse::Conflict);
                             rs.insert(com_id, (Some(res_tx), None, Instant::now()));
                         }
-                        Some((None, Some(res), _)) => {
+                        Some((_, (None, Some(res), _))) => {
                             let _ = res_tx.send(res);
                         }
                         Some(_) => error!("请求反馈进入非法处理分支"),
                         None => match com.to_bytes(&mut arena) {
                             Ok(bytes) => {
-                                let record = FutureRecord::to(topic_com)
-                                    .payload(bytes.as_slice())
-                                    .key(agg_id.as_bytes())
-                                    .headers(OwnedHeaders::new_with_capacity(1).insert(Header {
-                                        key: "com_id",
-                                        value: Some(com_id.as_bytes()),
-                                    }));
-                                match producer
-                                    .send(record, SENDER_CONFIG.timeout)
-                                    .await
-                                    .map_err(|(e, _)| UniError::SendError(e.to_string()))
-                                    .map(
-                                        |Delivery {
-                                            partition,
-                                            offset,
-                                            timestamp: _timestamp,
-                                        }| {
-                                            debug!("聚合 {agg_id} 命令 {com_id} 写入分区 {partition} 偏移 {offset}");
-                                        },
-                                    ) {
-                                    Ok(()) => {
-                                        rs.insert(com_id, (Some(res_tx), None, Instant::now()));
+                                let producer = Arc::clone(&producer);
+                                let rs = Arc::clone(&rs);
+                                tokio::spawn(async move {
+                                    let record = FutureRecord::to(topic_com)
+                                        .payload(bytes.as_slice())
+                                        .key(agg_id.as_bytes())
+                                        .headers(OwnedHeaders::new_with_capacity(1).insert(Header {
+                                            key: "com_id",
+                                            value: Some(com_id.as_bytes()),
+                                        }));
+                                    match producer
+                                        .send(record, SENDER_CONFIG.timeout)
+                                        .await
+                                        .map_err(|(e, _)| UniError::SendError(e.to_string()))
+                                        .map(
+                                            |Delivery {
+                                                partition,
+                                                offset,
+                                                timestamp: _timestamp,
+                                            }| {
+                                                debug!("聚合 {agg_id} 命令 {com_id} 写入分区 {partition} 偏移 {offset}");
+                                            },
+                                        ) {
+                                        Ok(()) => {
+                                            rs.insert(com_id, (Some(res_tx), None, Instant::now()));
+                                        }
+                                        Err(e) => {
+                                            let _ = res_tx.send(e.response());
+                                        }
                                     }
-                                    Err(e) => {
-                                        let _ = res_tx.send(e.response());
-                                    }
-                                }
+                                });
                             }
                             Err(e) => {
                                 let _ = res_tx.send(e.response());
@@ -265,7 +281,7 @@ where
                         }
                     }
                     Some(Todo::Response { com_id, res }) => match rs.remove(&com_id) {
-                        Some((Some(res_tx), None, _)) => {
+                        Some((_, (Some(res_tx), None, _))) => {
                             let _ = res_tx.send(res);
                         }
                         Some(_) => error!("发送反馈进入非法处理分支"),
@@ -355,8 +371,13 @@ macro_rules! create_handler {
             Path(com_id): Path<Uuid>,
             State(svc): State<Arc<crate::KafkaSender<$c>>>,
             UniCommand(com, lang, _): UniCommand<$com, F>,
-        ) -> unis::I18nResponse {
-            unis::I18nResponse(svc.create(com_id, <$c>::$variant(com)).await, lang)
+        ) -> ::unis::I18nResponse {
+            let agg_id = ::uuid::Uuid::new_v4();
+            ::unis::I18nResponse(
+                svc.apply(agg_id, com_id, <$c>::$variant(com)).await,
+                lang,
+                agg_id,
+            )
         }
     };
 }
@@ -369,8 +390,12 @@ macro_rules! change_handler {
             Path(UniKey { agg_id, com_id }): Path<UniKey>,
             State(svc): State<Arc<crate::KafkaSender<$c>>>,
             UniCommand(com, lang, _): UniCommand<$com, F>,
-        ) -> unis::I18nResponse {
-            unis::I18nResponse(svc.change(agg_id, com_id, <$c>::$variant(com)).await, lang)
+        ) -> ::unis::I18nResponse {
+            ::unis::I18nResponse(
+                svc.apply(agg_id, com_id, <$c>::$variant(com)).await,
+                lang,
+                agg_id,
+            )
         }
     };
 }

@@ -1,5 +1,4 @@
 [response.zh]
-"success" = "成功"
 "validate" = "命令数据验证错误"
 "auth" = "身份验证错误"
 "timeout" = "请求超时"
@@ -13,7 +12,6 @@
 "send" = "写入命令流错误"
 
 [response.en]
-"success" = "success"
 "validate" = "validate error"
 "auth" = "auth error"
 "timeout" = "request timeout"

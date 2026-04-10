@@ -24,7 +24,7 @@ use tokio::{
     },
     time::{self, Duration, Instant, MissedTickBehavior},
 };
-use tracing::{Span, debug, error, field, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
 const EMPTY_BYTES: &[u8] = &[];
@@ -171,11 +171,7 @@ where
         }
     }
 
-    #[instrument(
-        name = "process_aggregate",
-        skip(loader, stream, coms, agg_rx),
-        fields(com_id)
-    )]
+    #[instrument(name = "process_aggregate", skip(loader, stream, coms, agg_rx))]
     async fn process(
         topic: &'static str,
         agg_id: Uuid,
@@ -194,9 +190,8 @@ where
                     com_id,
                     com,
                 }) => {
-                    Span::current().record("com_id", field::display(&com_id));
                     if coms.contains(&com_id) {
-                        warn!("重复提交聚合命令");
+                        warn!("{com_id}: 重复提交聚合命令");
                         match stream
                             .respond(
                                 topic,
@@ -207,8 +202,8 @@ where
                             )
                             .await
                         {
-                            Ok(()) => info!("重复提交聚合命令反馈成功"),
-                            Err(e) => error!("重复提交聚合命令反馈失败：{e}"),
+                            Ok(()) => info!("{com_id}: 重复提交聚合命令反馈成功"),
+                            Err(e) => error!("{com_id}: 重复提交聚合命令反馈失败：{e}"),
                         }
                         continue;
                     }
@@ -218,7 +213,7 @@ where
                     {
                         Ok((na, evt)) => {
                             if coms.contains(&com_id) {
-                                warn!("重复提交聚合命令");
+                                warn!("{com_id}: 重复提交聚合命令");
                                 match stream
                                     .respond(
                                         topic,
@@ -229,8 +224,8 @@ where
                                     )
                                     .await
                                 {
-                                    Ok(()) => info!("重复提交聚合命令反馈成功"),
-                                    Err(e) => error!("重复提交聚合命令反馈失败：{e}"),
+                                    Ok(()) => info!("{com_id}: 重复提交聚合命令反馈成功"),
+                                    Err(e) => error!("{com_id}: 重复提交聚合命令反馈失败：{e}"),
                                 }
                                 continue;
                             }
@@ -240,13 +235,13 @@ where
                                     .await
                                 {
                                     Ok(()) => {
-                                        info!("聚合类型事件写入成功");
+                                        info!("{com_id}: 聚合类型事件写入成功");
                                         agg = na;
                                         coms.insert(com_id);
                                         debug!("聚合版本：{}", agg.revision());
                                     }
                                     Err(e) => {
-                                        error!("聚合类型事件写入失败：{e}");
+                                        error!("{com_id}: 聚合类型事件写入失败：{e}");
                                         match stream
                                             .respond(
                                                 topic,
@@ -258,16 +253,18 @@ where
                                             .await
                                         {
                                             Ok(()) => {
-                                                info!("聚合类型事件写入失败反馈成功");
+                                                info!("{com_id}: 聚合类型事件写入失败反馈成功");
                                             }
                                             Err(e) => {
-                                                error!("聚合类型事件写入失败反馈失败：{e}");
+                                                error!(
+                                                    "{com_id}: 聚合类型事件写入失败反馈失败：{e}"
+                                                );
                                             }
                                         }
                                     }
                                 },
                                 Err(e) => {
-                                    error!("聚合类型事件序列化错误：{e}");
+                                    error!("{com_id}: 聚合类型事件序列化错误：{e}");
                                     match stream
                                         .respond(
                                             topic,
@@ -279,17 +276,17 @@ where
                                         .await
                                     {
                                         Ok(()) => {
-                                            info!("聚合类型事件序列化错误反馈成功");
+                                            info!("{com_id}: 聚合类型事件序列化错误反馈成功");
                                         }
                                         Err(e) => {
-                                            error!("聚合类型事件序列化错误反馈失败：{e}");
+                                            error!("{com_id}: 聚合类型事件序列化错误反馈失败：{e}");
                                         }
                                     }
                                 }
                             }
                         }
                         Err(e) => {
-                            error!("聚合命令预处理错误：{e}");
+                            error!("{com_id}: 聚合命令预处理错误：{e}");
                             match stream
                                 .respond(
                                     topic,
@@ -301,10 +298,10 @@ where
                                 .await
                             {
                                 Ok(()) => {
-                                    info!("聚合命令预处理错误反馈成功");
+                                    info!("{com_id}: 聚合命令预处理错误反馈成功");
                                 }
                                 Err(e) => {
-                                    error!("聚合命令预处理错误反馈失败：{e}");
+                                    error!("{com_id}: 聚合命令预处理错误反馈失败：{e}");
                                 }
                             }
                         }

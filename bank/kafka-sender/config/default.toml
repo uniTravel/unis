@@ -21,4 +21,4 @@ sems = 300
 "group.protocol" = "consumer"
 
 [cp]
-"linger.ms" = "1"
+"linger.ms" = "5"
