@@ -1,11 +1,17 @@
 use super::*;
 use domain::transaction::*;
 
-#[fixture]
-async fn app(_setup: (), ctx: &'static Context) -> Router {
-    let svc = Arc::new(ctx.setup::<_, KafkaSender<TransactionCommand>>().await);
-    Router::new().merge(routes::transaction_routes().with_state(svc))
-}
+// static APP: LazyLock<Router> = LazyLock::new(|| {
+//     LazyLock::force(&SETUP);
+//     let svc = RT.block_on(async {
+//         Arc::new(
+//             super::ctx()
+//                 .setup::<_, KafkaSender<TransactionCommand>>()
+//                 .await,
+//         )
+//     });
+//     Router::new().merge(routes::transaction_routes().with_state(svc))
+// });
 
 prop_compose! {
     fn valid_init() (

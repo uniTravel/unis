@@ -12,7 +12,6 @@ unis.workspace = true
 
 ahash.workspace = true
 uuid.workspace = true
-regex.workspace = true
 serde.workspace = true
 rkyv.workspace = true
 validator.workspace = true

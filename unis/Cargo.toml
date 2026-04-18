@@ -19,6 +19,7 @@ unis-macros.workspace = true
 
 uuid.workspace = true
 ahash.workspace = true
+dashmap.workspace = true
 serde.workspace = true
 rkyv.workspace = true
 tokio.workspace = true

@@ -25,6 +25,7 @@ unis-kafka = { workspace = true }
 
 rstest.workspace = true
 proptest.workspace = true
+proptest-state-machine.workspace = true
 uuid.workspace = true
 rkyv.workspace = true
 serde.workspace = true

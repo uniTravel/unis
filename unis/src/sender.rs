@@ -4,7 +4,9 @@ use crate::{
     UniResponse,
     app::Context,
     domain::{Aggregate, CommandEnum, EventEnum},
+    i18n,
 };
+use axum::http::StatusCode;
 use rkyv::{
     Archive, Deserialize,
     de::Pool,
@@ -30,11 +32,31 @@ where
     /// 请求处理回复
     fn send(&self, todo: Todo<A, C, E>) -> Result<(), SendError<Todo<A, C, E>>>;
 
-    /// 发送聚合命令
+    /// 发送创建聚合命令
+    #[inline(always)]
+    fn create(
+        &self,
+        com_id: Uuid,
+        com: C,
+        lang: &str,
+    ) -> impl Future<Output = Result<Vec<u8>, (axum::http::StatusCode, String)>> {
+        let agg_id = ::uuid::Uuid::new_v4();
+        #[cfg(any(test, feature = "test-utils"))]
+        crate::app::test_context().insert(com_id, agg_id);
+        self.change(agg_id, com_id, com, lang)
+    }
+
+    /// 发送变更聚合命令
     #[instrument(name = "send_command", skip_all, fields(topic = self.topic(), %agg_id, %com_id))]
-    fn apply(&self, agg_id: Uuid, com_id: Uuid, com: C) -> impl Future<Output = UniResponse> {
+    fn change(
+        &self,
+        agg_id: Uuid,
+        com_id: Uuid,
+        com: C,
+        lang: &str,
+    ) -> impl Future<Output = Result<Vec<u8>, (axum::http::StatusCode, String)>> {
         async move {
-            let (res_tx, res_rx) = oneshot::channel::<UniResponse>();
+            let (res_tx, res_rx) = oneshot::channel::<Result<Vec<u8>, UniResponse>>();
             if let Err(e) = self.send(Todo::Reply {
                 agg_id,
                 com_id,
@@ -46,13 +68,23 @@ where
 
             info!("发送聚合命令");
             match res_rx.await {
-                Ok(res) => {
-                    info!("聚合命令收到反馈：{res}");
-                    res
-                }
+                Ok(res) => match res {
+                    Ok(res) => {
+                        info!("聚合命令收到成功反馈");
+                        Ok(res)
+                    }
+                    Err(UniResponse::Duplicate) => {
+                        info!("聚合命令已执行成功");
+                        Err((StatusCode::ACCEPTED, agg_id.to_string()))
+                    }
+                    Err(res) => {
+                        info!("聚合命令收到失败反馈：{res}");
+                        Err(i18n::response(res, lang))
+                    }
+                },
                 Err(e) => {
                     error!("聚合命令接收反馈错误：{e}");
-                    UniResponse::Timeout
+                    Err(i18n::response(UniResponse::Timeout, lang))
                 }
             }
         }
@@ -77,14 +109,14 @@ where
         /// 命令
         com: C,
         /// 回复通道
-        res_tx: oneshot::Sender<UniResponse>,
+        res_tx: oneshot::Sender<Result<Vec<u8>, UniResponse>>,
     },
     /// 处理响应
     Response {
         /// 命令 Id
         com_id: Uuid,
         /// 响应
-        res: UniResponse,
+        res: Result<Vec<u8>, UniResponse>,
     },
 }
 
@@ -112,64 +144,59 @@ macro_rules! route_builder {
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
 pub async fn create(
-    app: axum::Router,
+    app: &'static axum::Router,
     path: &str,
     op: &str,
-    com_id: uuid::Uuid,
-    com: impl crate::domain::Command
-    + for<'a> rkyv::Serialize<
-        rkyv::rancor::Strategy<
-            rkyv::ser::Serializer<
-                rkyv::util::AlignedVec,
-                rkyv::ser::allocator::ArenaHandle<'a>,
-                rkyv::ser::sharing::Share,
-            >,
-            rkyv::rancor::Error,
-        >,
-    >,
-) -> Result<axum::response::Response<axum::body::Body>, std::convert::Infallible> {
+    com: impl crate::domain::Command,
+) -> (axum::http::StatusCode, Uuid, axum::body::Bytes) {
+    let app = app.clone();
+    let com_id = Uuid::new_v4();
     let path = format!("{path}/{op}/{com_id}");
-    tower::ServiceExt::oneshot(
+    let res = tower::ServiceExt::oneshot(
         app,
         axum::http::Request::post(path)
             .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
             .body(axum::body::Body::from(
-                rkyv::to_bytes::<Error>(&com).unwrap().to_vec(),
+                rkyv::api::high::to_bytes_in::<Vec<u8>, Error>(&com, Vec::new()).unwrap(),
             ))
             .unwrap(),
     )
     .await
+    .unwrap();
+    let status = res.status();
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let (_, agg_id) = crate::app::test_context().remove(&com_id).unwrap();
+    (status, agg_id, body)
 }
 
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
 pub async fn change(
-    app: axum::Router,
+    app: &'static axum::Router,
     path: &str,
     op: &str,
-    agg_id: uuid::Uuid,
-    com_id: uuid::Uuid,
-    com: impl crate::domain::Command
-    + for<'a> rkyv::Serialize<
-        rkyv::rancor::Strategy<
-            rkyv::ser::Serializer<
-                rkyv::util::AlignedVec,
-                rkyv::ser::allocator::ArenaHandle<'a>,
-                rkyv::ser::sharing::Share,
-            >,
-            rkyv::rancor::Error,
-        >,
-    >,
-) -> Result<axum::response::Response<axum::body::Body>, std::convert::Infallible> {
+    agg_id: Uuid,
+    com: impl crate::domain::Command,
+) -> (axum::http::StatusCode, axum::body::Bytes) {
+    let app = app.clone();
+    let com_id = Uuid::new_v4();
     let path = format!("{path}/{op}/{agg_id}/{com_id}");
-    tower::ServiceExt::oneshot(
+    let res = tower::ServiceExt::oneshot(
         app,
         axum::http::Request::post(path)
             .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
             .body(axum::body::Body::from(
-                rkyv::to_bytes::<Error>(&com).unwrap().to_vec(),
+                rkyv::api::high::to_bytes_in::<Vec<u8>, Error>(&com, Vec::new()).unwrap(),
             ))
             .unwrap(),
     )
     .await
+    .unwrap();
+    let status = res.status();
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, body)
 }

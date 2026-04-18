@@ -32,7 +32,9 @@ pub trait Aggregate: Send + Clone + 'static {
 }
 
 /// 事件特征
-pub trait Event: Archive + 'static {
+pub trait Event:
+    Archive + for<'m> Serialize<Strategy<Serializer<Vec<u8>, ArenaHandle<'m>, Share>, Error>> + 'static
+{
     /// 聚合类型
     type A: Aggregate;
 
@@ -48,7 +50,13 @@ pub trait Event: Archive + 'static {
 }
 
 /// 命令特征
-pub trait Command: Archive + Sized + Clone + 'static {
+pub trait Command:
+    Archive
+    + Sized
+    + Clone
+    + for<'m> Serialize<Strategy<Serializer<Vec<u8>, ArenaHandle<'m>, Share>, Error>>
+    + 'static
+{
     /// 聚合类型
     type A: Aggregate;
     /// 事件类型
@@ -91,9 +99,14 @@ where
     /// 反序列化
     #[inline(always)]
     fn from_bytes(bytes: &[u8]) -> Result<Self, UniError> {
-        let mut aligned = AlignedVec::<4096>::new();
-        aligned.extend_from_slice(bytes);
-        Ok(unsafe { rkyv::from_bytes_unchecked::<Self, Error>(&aligned) }?)
+        let required_align = std::mem::align_of::<Self::Archived>();
+        if bytes.as_ptr().align_offset(required_align) == 0 {
+            Ok(unsafe { rkyv::from_bytes_unchecked::<Self, Error>(bytes) }?)
+        } else {
+            let mut aligned = AlignedVec::<16>::with_capacity(bytes.len());
+            aligned.extend_from_slice(bytes);
+            Ok(unsafe { rkyv::from_bytes_unchecked::<Self, Error>(&aligned) }?)
+        }
     }
 }
 
@@ -135,9 +148,14 @@ where
     /// 反序列化
     #[inline(always)]
     fn from_bytes(bytes: &[u8]) -> Result<Self, UniError> {
-        let mut aligned = AlignedVec::<4096>::new();
-        aligned.extend_from_slice(bytes);
-        Ok(unsafe { rkyv::from_bytes_unchecked::<Self, Error>(&aligned) }?)
+        let required_align = std::mem::align_of::<Self::Archived>();
+        if bytes.as_ptr().align_offset(required_align) == 0 {
+            Ok(unsafe { rkyv::from_bytes_unchecked::<Self, Error>(bytes) }?)
+        } else {
+            let mut aligned = AlignedVec::<16>::with_capacity(bytes.len());
+            aligned.extend_from_slice(bytes);
+            Ok(unsafe { rkyv::from_bytes_unchecked::<Self, Error>(&aligned) }?)
+        }
     }
 }
 

@@ -207,8 +207,8 @@ where
             DashMap<
                 Uuid,
                 (
-                    Option<oneshot::Sender<UniResponse>>,
-                    Option<UniResponse>,
+                    Option<oneshot::Sender<Result<Vec<u8>, UniResponse>>>,
+                    Option<Result<Vec<u8>, UniResponse>>,
                     Instant,
                 ),
                 RandomState,
@@ -234,7 +234,7 @@ where
                 data = rx.recv() => match data {
                     Some(Todo::Reply { agg_id, com_id, com, res_tx }) => match rs.remove(&com_id) {
                         Some((_, (Some(rep), None, _))) => {
-                            let _ = rep.send(UniResponse::Conflict);
+                            let _ = rep.send(Err(UniResponse::Conflict));
                             rs.insert(com_id, (Some(res_tx), None, Instant::now()));
                         }
                         Some((_, (None, Some(res), _))) => {
@@ -270,13 +270,13 @@ where
                                             rs.insert(com_id, (Some(res_tx), None, Instant::now()));
                                         }
                                         Err(e) => {
-                                            let _ = res_tx.send(e.response());
+                                            let _ = res_tx.send(Err(e.response()));
                                         }
                                     }
                                 });
                             }
                             Err(e) => {
-                                let _ = res_tx.send(e.response());
+                                let _ = res_tx.send(Err(e.response()));
                             }
                         }
                     }
@@ -335,7 +335,9 @@ where
     }
 }
 
-fn process_message(msg: &BorrowedMessage<'_>) -> Result<(Uuid, Uuid, UniResponse), UniError> {
+fn process_message(
+    msg: &BorrowedMessage<'_>,
+) -> Result<(Uuid, Uuid, Result<Vec<u8>, UniResponse>), UniError> {
     let key = msg.key().ok_or("消息键不存在")?;
     let agg_id = Uuid::from_slice(key).map_err(|e| UniError::MsgError(e.to_string()))?;
     debug!("提取聚合Id：{agg_id}");
@@ -360,7 +362,14 @@ fn process_message(msg: &BorrowedMessage<'_>) -> Result<(Uuid, Uuid, UniResponse
     let res = UniResponse::from_bytes(res_data);
     debug!("提取命令处理结果：{:?}", res);
 
-    Ok((agg_id, com_id, res))
+    match res {
+        UniResponse::Success => Ok((
+            agg_id,
+            com_id,
+            Ok(msg.payload().ok_or("消息体不存在")?.to_vec()),
+        )),
+        res => Ok((agg_id, com_id, Err(res))),
+    }
 }
 
 /// 为创建聚合的命令构造处理器
@@ -371,13 +380,8 @@ macro_rules! create_handler {
             Path(com_id): Path<Uuid>,
             State(svc): State<Arc<crate::KafkaSender<$c>>>,
             UniCommand(com, lang, _): UniCommand<$com, F>,
-        ) -> ::unis::I18nResponse {
-            let agg_id = ::uuid::Uuid::new_v4();
-            ::unis::I18nResponse(
-                svc.apply(agg_id, com_id, <$c>::$variant(com)).await,
-                lang,
-                agg_id,
-            )
+        ) -> Result<Vec<u8>, (axum::http::StatusCode, String)> {
+            svc.create(com_id, <$c>::$variant(com), &lang).await
         }
     };
 }
@@ -390,12 +394,8 @@ macro_rules! change_handler {
             Path(UniKey { agg_id, com_id }): Path<UniKey>,
             State(svc): State<Arc<crate::KafkaSender<$c>>>,
             UniCommand(com, lang, _): UniCommand<$com, F>,
-        ) -> ::unis::I18nResponse {
-            ::unis::I18nResponse(
-                svc.apply(agg_id, com_id, <$c>::$variant(com)).await,
-                lang,
-                agg_id,
-            )
+        ) -> Result<Vec<u8>, (axum::http::StatusCode, String)> {
+            svc.change(agg_id, com_id, <$c>::$variant(com), &lang).await
         }
     };
 }

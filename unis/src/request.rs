@@ -52,10 +52,17 @@ where
             .await
             .map_err(|e| e.into_response())?;
 
-        let mut aligned = AlignedVec::<4096>::new();
-        aligned.extend_from_slice(&bytes);
-        let com = rkyv::from_bytes::<T, Error>(&aligned)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?;
+        let required_align = std::mem::align_of::<T::Archived>();
+        let com = match bytes.as_ptr().align_offset(required_align) {
+            0 => rkyv::from_bytes::<T, Error>(&bytes)
+                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?,
+            _ => {
+                let mut aligned = AlignedVec::<16>::with_capacity(bytes.len());
+                aligned.extend_from_slice(&bytes);
+                rkyv::from_bytes::<T, Error>(&aligned)
+                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?
+            }
+        };
 
         com.validate().map_err(|e| {
             let mut result = String::new();

@@ -2,12 +2,17 @@ use super::*;
 use domain::account::*;
 
 #[fixture]
-async fn app(_setup: (), ctx: &'static Context) -> Router {
-    let svc = Arc::new(ctx.setup::<_, KafkaSender<AccountCommand>>().await);
-    Router::new().merge(routes::account_routes().with_state(svc))
+async fn app() -> &'static Router {
+    static CELL: OnceCell<Router> = OnceCell::const_new();
+    CELL.get_or_init(|| async {
+        LazyLock::force(&SETUP);
+        let svc = Arc::new(super::ctx().setup::<_, KafkaSender<AccountCommand>>().await);
+        Router::new().merge(routes::account_routes().with_state(svc))
+    })
+    .await
 }
 
-const COUNT: usize = 7;
+const COUNT: usize = 256;
 const PATH: &str = "/api/v1/rkyv/account";
 
 prop_compose! {
@@ -80,33 +85,182 @@ prop_compose! {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct RefAccount {
+    code: String,
+    owner: String,
+    limit: i64,
+    verified_by: String,
+    verified: bool,
+    approved_by: String,
+    approved: bool,
+}
+
+impl ReferenceStateMachine for RefAccount {
+    type State = RefAccount;
+    type Transition = AccountCommand;
+
+    fn init_state() -> BoxedStrategy<Self::State> {
+        Just(RefAccount {
+            code: String::default(),
+            owner: String::default(),
+            limit: 0,
+            verified_by: String::default(),
+            verified: false,
+            approved_by: String::default(),
+            approved: false,
+        })
+        .boxed()
+    }
+
+    fn transitions(state: &Self::State) -> BoxedStrategy<Self::Transition> {
+        match state {
+            RefAccount {
+                code,
+                owner: _,
+                limit: 0,
+                verified_by,
+                verified: false,
+                approved_by,
+                approved: false,
+            } if code.is_empty() && verified_by.is_empty() && approved_by.is_empty() => {
+                valid_create().prop_map(AccountCommand::Create).boxed()
+            }
+            RefAccount {
+                code: _,
+                owner: _,
+                limit: 0,
+                verified_by,
+                verified: false,
+                approved_by,
+                approved: false,
+            } if verified_by.is_empty() && approved_by.is_empty() => {
+                valid_verify().prop_map(AccountCommand::Verify).boxed()
+            }
+            RefAccount {
+                code: _,
+                owner: _,
+                limit: 0,
+                verified_by: _,
+                verified: _,
+                approved_by,
+                approved: false,
+            } if approved_by.is_empty() => {
+                valid_approve().prop_map(AccountCommand::Approve).boxed()
+            }
+            RefAccount {
+                code: _,
+                owner: _,
+                limit: _,
+                verified_by: _,
+                verified: true,
+                approved_by,
+                approved: _,
+            } if !approved_by.is_empty() => valid_limit().prop_map(AccountCommand::Limit).boxed(),
+            _ => {
+                println!("{:#?}", state);
+                panic!("状态描述不完整");
+            }
+        }
+    }
+
+    fn apply(mut state: Self::State, transition: &Self::Transition) -> Self::State {
+        match transition {
+            AccountCommand::Create(com) => {
+                state.code = com.code.clone();
+                state.owner = com.owner.clone();
+                state
+            }
+            AccountCommand::Verify(com) => {
+                state.verified_by = com.verified_by.clone();
+                state.verified = com.verified;
+                state
+            }
+            AccountCommand::Approve(com) => {
+                if state.verified {
+                    state.approved_by = com.approved_by.clone();
+                    state.approved = com.approved;
+                    state.limit = com.limit;
+                }
+                state
+            }
+            AccountCommand::Limit(com) => {
+                if state.approved {
+                    state.limit = com.limit;
+                }
+                state
+            }
+        }
+    }
+
+    fn preconditions(state: &Self::State, transition: &Self::Transition) -> bool {
+        match transition {
+            AccountCommand::Limit(com) => com.limit != state.limit,
+            _ => true,
+        }
+    }
+}
+
+fn process(evt: AccountEvent, state: &mut Account) {
+    match evt {
+        AccountEvent::Created(evt) => evt.process(state),
+        AccountEvent::Verified(evt) => evt.process(state),
+        AccountEvent::Approved(evt) => evt.process(state),
+        AccountEvent::Limited(evt) => evt.process(state),
+    }
+}
+
 #[rstest]
 #[tokio::test]
-async fn start_account(#[future(awt)] app: Router, ctx: &'static Context) {
-    let mut runner = TestRunner::default();
+async fn account_state_machine(#[future(awt)] app: &'static Router, ctx: &'static Context) {
     let mut tasks = JoinSet::new();
+    let strategy = Arc::new(RefAccount::sequential_strategy(2..6));
 
     for _ in 0..COUNT {
-        let app_c = app.clone();
-        let com_create = valid_create().new_tree(&mut runner).unwrap().current();
-        let com_verify = valid_verify().new_tree(&mut runner).unwrap().current();
-        let com_approve = valid_approve().new_tree(&mut runner).unwrap().current();
-        let com_limit = valid_limit().new_tree(&mut runner).unwrap().current();
+        let strategy = strategy.clone();
         tasks.spawn(async move {
-            let agg_id = Uuid::new_v4();
-            let app = app_c.clone();
-            let res = change(app, PATH, "verify", agg_id, Uuid::new_v4(), com_verify).await?;
-            prop_assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
-            let app = app_c.clone();
-            let res = change(app, PATH, "approve", agg_id, Uuid::new_v4(), com_approve).await?;
-            prop_assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
-            let app = app_c.clone();
-            let res = change(app, PATH, "limit", agg_id, Uuid::new_v4(), com_limit).await?;
-            prop_assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+            let (mut ref_state, transitions, _) = strategy
+                .new_tree(&mut TestRunner::default())
+                .unwrap()
+                .current();
+            let mut state = Account::new(Uuid::new_v4());
 
-            let res = create(app_c, PATH, "create", Uuid::new_v4(), com_create).await?;
-            prop_assert_eq!(res.status(), StatusCode::OK);
+            for transition in transitions {
+                ref_state = RefAccount::apply(ref_state, &transition);
+                match transition {
+                    AccountCommand::Create(com) => {
+                        let (_, agg_id, body) = create(app, PATH, "create", com).await;
+                        let evt = AccountEvent::from_bytes(&body).unwrap();
+                        let mut agg = Account::new(agg_id);
+                        process(evt, &mut agg);
+                        state = agg;
+                    }
+                    AccountCommand::Verify(com) => {
+                        let (_, body) = change(app, PATH, "verify", state.id(), com).await;
+                        process(AccountEvent::from_bytes(&body).unwrap(), &mut state);
+                    }
+                    AccountCommand::Approve(com) => {
+                        if ref_state.verified {
+                            let (_, body) = change(app, PATH, "approve", state.id(), com).await;
+                            process(AccountEvent::from_bytes(&body).unwrap(), &mut state);
+                        }
+                    }
+                    AccountCommand::Limit(com) => {
+                        if ref_state.approved {
+                            let (_, body) = change(app, PATH, "limit", state.id(), com).await;
+                            process(AccountEvent::from_bytes(&body).unwrap(), &mut state);
+                        }
+                    }
+                }
+            }
 
+            prop_assert_eq!(ref_state.code, state.code);
+            prop_assert_eq!(ref_state.owner, state.owner);
+            prop_assert_eq!(ref_state.verified_by, state.verified_by);
+            prop_assert_eq!(ref_state.verified, state.verified);
+            prop_assert_eq!(ref_state.approved_by, state.approved_by);
+            prop_assert_eq!(ref_state.approved, state.approved);
+            prop_assert_eq!(ref_state.limit, state.limit);
             Ok(())
         });
     }
@@ -125,33 +279,26 @@ async fn start_account(#[future(awt)] app: Router, ctx: &'static Context) {
 
 #[rstest]
 #[tokio::test]
-async fn stop_account_verified_false(#[future(awt)] app: Router, ctx: &'static Context) {
+async fn stop_account_verified_false(#[future(awt)] app: &'static Router, ctx: &'static Context) {
     let mut runner = TestRunner::default();
     let mut tasks = JoinSet::new();
 
     for _ in 0..COUNT {
-        let app_c = app.clone();
         let com_create = valid_create().new_tree(&mut runner).unwrap().current();
         let com_verify = valid_verify().new_tree(&mut runner).unwrap().current();
         let false_verify = false_verify().new_tree(&mut runner).unwrap().current();
         let com_approve = valid_approve().new_tree(&mut runner).unwrap().current();
         let com_limit = valid_limit().new_tree(&mut runner).unwrap().current();
         tasks.spawn(async move {
-            let app = app_c.clone();
-            let res = create(app, PATH, "create", Uuid::new_v4(), com_create).await?;
-            let body = to_bytes(res.into_body(), 36).await.unwrap();
-            let agg_id = Uuid::parse_str(str::from_utf8(&body).unwrap()).unwrap();
-            let app = app_c.clone();
-            let _ = change(app, PATH, "verify", agg_id, Uuid::new_v4(), false_verify).await?;
+            let (_, agg_id, _) = create(app, PATH, "create", com_create).await;
+            change(app, PATH, "verify", agg_id, false_verify).await;
 
-            let app = app_c.clone();
-            let res = change(app, PATH, "verify", agg_id, Uuid::new_v4(), com_verify).await?;
-            prop_assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-            let app = app_c.clone();
-            let res = change(app, PATH, "approve", agg_id, Uuid::new_v4(), com_approve).await?;
-            prop_assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-            let res = change(app_c, PATH, "limit", agg_id, Uuid::new_v4(), com_limit).await?;
-            prop_assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+            let (s, _) = change(app, PATH, "verify", agg_id, com_verify).await;
+            prop_assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
+            let (s, _) = change(app, PATH, "approve", agg_id, com_approve).await;
+            prop_assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
+            let (s, _) = change(app, PATH, "limit", agg_id, com_limit).await;
+            prop_assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
             Ok(())
         });
@@ -171,12 +318,11 @@ async fn stop_account_verified_false(#[future(awt)] app: Router, ctx: &'static C
 
 #[rstest]
 #[tokio::test]
-async fn stop_account_approved_false(#[future(awt)] app: Router, ctx: &'static Context) {
+async fn stop_account_approved_false(#[future(awt)] app: &'static Router, ctx: &'static Context) {
     let mut runner = TestRunner::default();
     let mut tasks = JoinSet::new();
 
     for _ in 0..COUNT {
-        let app_c = app.clone();
         let com_create = valid_create().new_tree(&mut runner).unwrap().current();
         let com_verify = valid_verify().new_tree(&mut runner).unwrap().current();
         let true_verify = true_verify().new_tree(&mut runner).unwrap().current();
@@ -184,23 +330,16 @@ async fn stop_account_approved_false(#[future(awt)] app: Router, ctx: &'static C
         let false_approve = false_approve().new_tree(&mut runner).unwrap().current();
         let com_limit = valid_limit().new_tree(&mut runner).unwrap().current();
         tasks.spawn(async move {
-            let app = app_c.clone();
-            let res = create(app, PATH, "create", Uuid::new_v4(), com_create).await?;
-            let body = to_bytes(res.into_body(), 36).await.unwrap();
-            let agg_id = Uuid::parse_str(str::from_utf8(&body).unwrap()).unwrap();
-            let app = app_c.clone();
-            let _ = change(app, PATH, "verify", agg_id, Uuid::new_v4(), true_verify).await?;
-            let app = app_c.clone();
-            let _ = change(app, PATH, "approve", agg_id, Uuid::new_v4(), false_approve).await?;
+            let (_, agg_id, _) = create(app, PATH, "create", com_create).await;
+            change(app, PATH, "verify", agg_id, true_verify).await;
+            change(app, PATH, "approve", agg_id, false_approve).await;
 
-            let app = app_c.clone();
-            let res = change(app, PATH, "verify", agg_id, Uuid::new_v4(), com_verify).await?;
-            prop_assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-            let app = app_c.clone();
-            let res = change(app, PATH, "approve", agg_id, Uuid::new_v4(), com_approve).await?;
-            prop_assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-            let res = change(app_c, PATH, "limit", agg_id, Uuid::new_v4(), com_limit).await?;
-            prop_assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+            let (s, _) = change(app, PATH, "verify", agg_id, com_verify).await;
+            prop_assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
+            let (s, _) = change(app, PATH, "approve", agg_id, com_approve).await;
+            prop_assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
+            let (s, _) = change(app, PATH, "limit", agg_id, com_limit).await;
+            prop_assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
             Ok(())
         });
@@ -220,31 +359,21 @@ async fn stop_account_approved_false(#[future(awt)] app: Router, ctx: &'static C
 
 #[rstest]
 #[tokio::test]
-async fn state_account_created(#[future(awt)] app: Router, ctx: &'static Context) {
+async fn state_account_created(#[future(awt)] app: &'static Router, ctx: &'static Context) {
     let mut runner = TestRunner::default();
     let mut tasks = JoinSet::new();
 
     for _ in 0..COUNT {
-        let app_c = app.clone();
         let com_create = valid_create().new_tree(&mut runner).unwrap().current();
-        let com_verify = valid_verify().new_tree(&mut runner).unwrap().current();
         let com_approve = valid_approve().new_tree(&mut runner).unwrap().current();
         let com_limit = valid_limit().new_tree(&mut runner).unwrap().current();
         tasks.spawn(async move {
-            let app = app_c.clone();
-            let res = create(app, PATH, "create", Uuid::new_v4(), com_create).await?;
-            let body = to_bytes(res.into_body(), 36).await.unwrap();
-            let agg_id = Uuid::parse_str(str::from_utf8(&body).unwrap()).unwrap();
+            let (_, agg_id, _) = create(app, PATH, "create", com_create).await;
 
-            let app = app_c.clone();
-            let res = change(app, PATH, "approve", agg_id, Uuid::new_v4(), com_approve).await?;
-            prop_assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-            let app = app_c.clone();
-            let res = change(app, PATH, "limit", agg_id, Uuid::new_v4(), com_limit).await?;
-            prop_assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-
-            let res = change(app_c, PATH, "verify", agg_id, Uuid::new_v4(), com_verify).await?;
-            prop_assert_eq!(res.status(), StatusCode::OK);
+            let (s, _) = change(app, PATH, "approve", agg_id, com_approve).await;
+            prop_assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
+            let (s, _) = change(app, PATH, "limit", agg_id, com_limit).await;
+            prop_assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
             Ok(())
         });
@@ -264,34 +393,23 @@ async fn state_account_created(#[future(awt)] app: Router, ctx: &'static Context
 
 #[rstest]
 #[tokio::test]
-async fn state_account_verified_true(#[future(awt)] app: Router, ctx: &'static Context) {
+async fn state_account_verified_true(#[future(awt)] app: &'static Router, ctx: &'static Context) {
     let mut runner = TestRunner::default();
     let mut tasks = JoinSet::new();
 
     for _ in 0..COUNT {
-        let app_c = app.clone();
         let com_create = valid_create().new_tree(&mut runner).unwrap().current();
         let com_verify = valid_verify().new_tree(&mut runner).unwrap().current();
         let true_verify = true_verify().new_tree(&mut runner).unwrap().current();
-        let com_approve = valid_approve().new_tree(&mut runner).unwrap().current();
         let com_limit = valid_limit().new_tree(&mut runner).unwrap().current();
         tasks.spawn(async move {
-            let app = app_c.clone();
-            let res = create(app, PATH, "create", Uuid::new_v4(), com_create).await?;
-            let body = to_bytes(res.into_body(), 36).await.unwrap();
-            let agg_id = Uuid::parse_str(str::from_utf8(&body).unwrap()).unwrap();
-            let app = app_c.clone();
-            let _ = change(app, PATH, "verify", agg_id, Uuid::new_v4(), true_verify).await?;
+            let (_, agg_id, _) = create(app, PATH, "create", com_create).await;
+            change(app, PATH, "verify", agg_id, true_verify).await;
 
-            let app = app_c.clone();
-            let res = change(app, PATH, "verify", agg_id, Uuid::new_v4(), com_verify).await?;
-            prop_assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-            let app = app_c.clone();
-            let res = change(app, PATH, "limit", agg_id, Uuid::new_v4(), com_limit).await?;
-            prop_assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-
-            let res = change(app_c, PATH, "approve", agg_id, Uuid::new_v4(), com_approve).await?;
-            prop_assert_eq!(res.status(), StatusCode::OK);
+            let (s, _) = change(app, PATH, "verify", agg_id, com_verify).await;
+            prop_assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
+            let (s, _) = change(app, PATH, "limit", agg_id, com_limit).await;
+            prop_assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
             Ok(())
         });
@@ -311,37 +429,25 @@ async fn state_account_verified_true(#[future(awt)] app: Router, ctx: &'static C
 
 #[rstest]
 #[tokio::test]
-async fn state_account_approved_true(#[future(awt)] app: Router, ctx: &'static Context) {
+async fn state_account_approved_true(#[future(awt)] app: &'static Router, ctx: &'static Context) {
     let mut runner = TestRunner::default();
     let mut tasks = JoinSet::new();
 
     for _ in 0..COUNT {
-        let app_c = app.clone();
         let com_create = valid_create().new_tree(&mut runner).unwrap().current();
         let com_verify = valid_verify().new_tree(&mut runner).unwrap().current();
         let true_verify = true_verify().new_tree(&mut runner).unwrap().current();
         let com_approve = valid_approve().new_tree(&mut runner).unwrap().current();
         let true_approve = true_approve().new_tree(&mut runner).unwrap().current();
-        let com_limit = valid_limit().new_tree(&mut runner).unwrap().current();
         tasks.spawn(async move {
-            let app = app_c.clone();
-            let res = create(app, PATH, "create", Uuid::new_v4(), com_create).await?;
-            let body = to_bytes(res.into_body(), 36).await.unwrap();
-            let agg_id = Uuid::parse_str(str::from_utf8(&body).unwrap()).unwrap();
-            let app = app_c.clone();
-            let _ = change(app, PATH, "verify", agg_id, Uuid::new_v4(), true_verify).await?;
-            let app = app_c.clone();
-            let _ = change(app, PATH, "approve", agg_id, Uuid::new_v4(), true_approve).await?;
+            let (_, agg_id, _) = create(app, PATH, "create", com_create).await;
+            change(app, PATH, "verify", agg_id, true_verify).await;
+            change(app, PATH, "approve", agg_id, true_approve).await;
 
-            let app = app_c.clone();
-            let res = change(app, PATH, "verify", agg_id, Uuid::new_v4(), com_verify).await?;
-            prop_assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-            let app = app_c.clone();
-            let res = change(app, PATH, "approve", agg_id, Uuid::new_v4(), com_approve).await?;
-            prop_assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-
-            let res = change(app_c, PATH, "limit", agg_id, Uuid::new_v4(), com_limit).await?;
-            prop_assert_eq!(res.status(), StatusCode::OK);
+            let (s, _) = change(app, PATH, "verify", agg_id, com_verify).await;
+            prop_assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
+            let (s, _) = change(app, PATH, "approve", agg_id, com_approve).await;
+            prop_assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
             Ok(())
         });
@@ -361,29 +467,23 @@ async fn state_account_approved_true(#[future(awt)] app: Router, ctx: &'static C
 
 #[rstest]
 #[tokio::test]
-async fn limit_account_restrict(#[future(awt)] app: Router, ctx: &'static Context) {
+async fn limit_account_restrict(#[future(awt)] app: &'static Router, ctx: &'static Context) {
     let mut runner = TestRunner::default();
     let mut tasks = JoinSet::new();
 
     for _ in 0..COUNT {
-        let app_c = app.clone();
         let com_create = valid_create().new_tree(&mut runner).unwrap().current();
         let true_verify = true_verify().new_tree(&mut runner).unwrap().current();
         let true_approve = true_approve().new_tree(&mut runner).unwrap().current();
         let mut com_limit = valid_limit().new_tree(&mut runner).unwrap().current();
         tasks.spawn(async move {
             com_limit.limit = true_approve.limit;
-            let app = app_c.clone();
-            let res = create(app, PATH, "create", Uuid::new_v4(), com_create).await?;
-            let body = to_bytes(res.into_body(), 36).await.unwrap();
-            let agg_id = Uuid::parse_str(str::from_utf8(&body).unwrap()).unwrap();
-            let app = app_c.clone();
-            let _ = change(app, PATH, "verify", agg_id, Uuid::new_v4(), true_verify).await?;
-            let app = app_c.clone();
-            let _ = change(app, PATH, "approve", agg_id, Uuid::new_v4(), true_approve).await?;
+            let (_, agg_id, _) = create(app, PATH, "create", com_create).await;
+            change(app, PATH, "verify", agg_id, true_verify).await;
+            change(app, PATH, "approve", agg_id, true_approve).await;
 
-            let res = change(app_c, PATH, "limit", agg_id, Uuid::new_v4(), com_limit).await?;
-            prop_assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+            let (s, _) = change(app, PATH, "limit", agg_id, com_limit).await;
+            prop_assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
             Ok(())
         });

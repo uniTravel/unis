@@ -140,13 +140,13 @@ where
                 }
                 data = rx.recv() => match data {
                     Some(com) => {
-                        let agg_id = com.agg_id.clone();
-                        if let Some((agg_tx, instant)) = caches.get_mut(&agg_id) {
+                        if let Some((agg_tx, instant)) = caches.get_mut(&com.agg_id) {
                             *instant = Instant::now();
                             if let Err(e) = agg_tx.send(com) {
                                 error!("提交聚合命令失败：{e}");
                             }
                         } else {
+                            let agg_id = com.agg_id.clone();
                             let (agg_tx, agg_rx) = mpsc::unbounded_channel::<Com<C>>();
                             tokio::spawn(Self::process(
                                 topic,

@@ -20,13 +20,13 @@ use uuid::Uuid;
 
 #[aggregate]
 pub struct Account {
-    code: String,
-    owner: String,
-    limit: i64,
-    verified_by: String,
-    verified: bool,
-    approved_by: String,
-    approved: bool,
+    pub code: String,
+    pub owner: String,
+    pub limit: i64,
+    pub verified_by: String,
+    pub verified: bool,
+    pub approved_by: String,
+    pub approved: bool,
 }
 
 #[event_enum(Account)]

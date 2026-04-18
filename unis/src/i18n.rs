@@ -1,3 +1,4 @@
+use axum::http::StatusCode;
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -6,6 +7,7 @@ use std::{
 };
 use validator::{ValidationError, ValidationErrors, ValidationErrorsKind};
 
+use crate::UniResponse;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::domain::Command;
 #[cfg(any(test, feature = "test-utils"))]
@@ -48,14 +50,28 @@ pub(crate) fn validation(result: &mut String, e: &ValidationErrors, lang: &str) 
     Ok(())
 }
 
-pub(crate) fn response(code: &str, lang: &str) -> String {
+pub(crate) fn response(res: UniResponse, lang: &str) -> (StatusCode, String) {
+    let (status, code) = match res {
+        UniResponse::ValidateError => (StatusCode::BAD_REQUEST, "validate"),
+        UniResponse::AuthError => (StatusCode::UNAUTHORIZED, "auth"),
+        UniResponse::Timeout => (StatusCode::REQUEST_TIMEOUT, "timeout"),
+        UniResponse::Conflict => (StatusCode::CONFLICT, "conflict"),
+        UniResponse::CheckError => (StatusCode::INTERNAL_SERVER_ERROR, "check"),
+        UniResponse::CodeError => (StatusCode::INTERNAL_SERVER_ERROR, "code"),
+        UniResponse::MsgError => (StatusCode::INTERNAL_SERVER_ERROR, "msg"),
+        UniResponse::WriteError => (StatusCode::INTERNAL_SERVER_ERROR, "write"),
+        UniResponse::ReadError => (StatusCode::INTERNAL_SERVER_ERROR, "read"),
+        UniResponse::SendError => (StatusCode::INTERNAL_SERVER_ERROR, "send"),
+        UniResponse::Success => (StatusCode::OK, "_"),
+        UniResponse::Duplicate => (StatusCode::ACCEPTED, "_"),
+    };
     match RESPONSE
         .get(lang)
         .or(RESPONSE.get("zh"))
         .and_then(|l| l.get(code))
     {
-        Some(r) => r.to_string(),
-        None => code.to_string(),
+        Some(r) => (status, r.to_string()),
+        None => (status, code.to_string()),
     }
 }
 

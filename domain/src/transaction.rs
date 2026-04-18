@@ -30,11 +30,11 @@ use uuid::Uuid;
 
 #[aggregate]
 pub struct Transaction {
-    account_code: String,
-    balance: i64,
-    period: String,
-    limit: i64,
-    trans_limit: i64,
+    pub account_code: String,
+    pub balance: i64,
+    pub period: String,
+    pub limit: i64,
+    pub trans_limit: i64,
 }
 
 #[event_enum(Transaction)]
