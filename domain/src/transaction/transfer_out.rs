@@ -60,20 +60,21 @@ impl Event for TransferOutFinished {
     }
 }
 
+#[cfg(feature = "test-utils")]
+proptest::prop_compose! {
+    pub fn transfer_out() (
+        in_code in crate::tests::digit_string(6),
+        amount in 1..i64::MAX
+    ) -> TransferOut {
+        TransferOut { in_code, amount }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
     use crate::tests::*;
     use proptest::prelude::*;
-
-    prop_compose! {
-        pub fn valid_com() (
-            in_code in digit_string(6),
-            amount in 1..i64::MAX
-        ) -> TransferOut {
-            TransferOut { in_code, amount }
-        }
-    }
 
     prop_compose! {
         fn invalid_code_length() (
@@ -104,7 +105,7 @@ pub(super) mod tests {
 
     proptest! {
         #[test]
-        fn valid_command(com in valid_com()) {
+        fn valid_command(com in transfer_out()) {
             let result = unis::validate(&com, "zh");
             prop_assert!(result.is_ok());
         }

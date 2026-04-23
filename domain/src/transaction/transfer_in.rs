@@ -57,20 +57,21 @@ impl Event for TransferInFinished {
     }
 }
 
+#[cfg(feature = "test-utils")]
+proptest::prop_compose! {
+    pub fn transfer_in() (
+        out_code in crate::tests::digit_string(6),
+        amount in 1..i64::MAX
+    ) -> TransferIn {
+        TransferIn { out_code, amount }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
     use crate::tests::*;
     use proptest::prelude::*;
-
-    prop_compose! {
-        pub fn valid_com() (
-            out_code in digit_string(6),
-            amount in 1..i64::MAX
-        ) -> TransferIn {
-            TransferIn { out_code, amount }
-        }
-    }
 
     prop_compose! {
         fn invalid_code_length() (
@@ -101,7 +102,7 @@ pub(super) mod tests {
 
     proptest! {
         #[test]
-        fn valid_command(com in valid_com()) {
+        fn valid_command(com in transfer_in()) {
             let result = unis::validate(&com, "zh");
             prop_assert!(result.is_ok());
         }

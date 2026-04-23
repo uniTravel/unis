@@ -202,35 +202,35 @@ impl Context {
 }
 
 async fn shutdown_signal() {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{SignalKind, signal};
+    cfg_select! {
+        unix => {
+            use tokio::signal::unix::{SignalKind, signal};
 
-        let mut sigint = match signal(SignalKind::interrupt()) {
-            Ok(sigint) => sigint,
-            Err(e) => {
-                panic!("监听 SIGINT 信号失败：{e}");
+            let mut sigint = match signal(SignalKind::interrupt()) {
+                Ok(sigint) => sigint,
+                Err(e) => {
+                    panic!("监听 SIGINT 信号失败：{e}");
+                }
+            };
+            let mut sigterm = match signal(SignalKind::terminate()) {
+                Ok(sigterm) => sigterm,
+                Err(e) => {
+                    panic!("监听 SIGTERM 信号失败：{e}");
+                }
+            };
+            tokio::select! {
+                _ = sigint.recv() => info!("收到 SIGINT 信号"),
+                _ = sigterm.recv() => info!("收到 SIGTERM 信号"),
             }
-        };
-        let mut sigterm = match signal(SignalKind::terminate()) {
-            Ok(sigterm) => sigterm,
-            Err(e) => {
-                panic!("监听 SIGTERM 信号失败：{e}");
-            }
-        };
-        tokio::select! {
-            _ = sigint.recv() => info!("收到 SIGINT 信号"),
-            _ = sigterm.recv() => info!("收到 SIGTERM 信号"),
         }
-    }
-    #[cfg(not(unix))]
-    {
-        use tracing::{error, info};
+        _ => {
+            use tracing::{error, info};
 
-        if let Err(e) = tokio::signal::ctrl_c().await {
-            error!("监听 Ctrl-C 信号失败: {e}");
-            return;
+            if let Err(e) = tokio::signal::ctrl_c().await {
+                error!("监听 Ctrl-C 信号失败: {e}");
+                return;
+            }
+            info!("收到 Ctrl-C 信号");
         }
-        info!("收到 Ctrl-C 信号");
     }
 }

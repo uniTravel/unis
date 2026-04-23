@@ -1,3 +1,4 @@
+use crate::validate;
 use unis::{
     domain::{Command, Event},
     errors::UniError,
@@ -5,6 +6,7 @@ use unis::{
 };
 
 #[command]
+#[validate(schema(function = "validate::validate_set_limit"))]
 pub struct SetLimit {
     #[validate(range(min = 10_000, max = 10_000_000, code = "range_num"))]
     pub limit: i64,
@@ -55,20 +57,21 @@ impl Event for LimitSetted {
     }
 }
 
+#[cfg(feature = "test-utils")]
+proptest::prop_compose! {
+    pub fn set_limit() (
+        (l, g) in crate::tests::less_great_equal(10_000..10_000_000i64, 10_000..10_000_000i64),
+        balance in 0..i64::MAX
+    ) -> SetLimit {
+        SetLimit { limit: g, trans_limit: l, balance }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use crate::tests::*;
     use proptest::prelude::*;
-
-    prop_compose! {
-        pub fn valid_com() (
-            limit in 10_000..10_000_000i64,
-            trans_limit in 10_000..10_000_000i64,
-            balance in 0..i64::MAX
-        ) -> SetLimit {
-            SetLimit { limit, trans_limit, balance }
-        }
-    }
 
     prop_compose! {
         fn invalid_limit_range() (
@@ -100,9 +103,18 @@ pub(super) mod tests {
         }
     }
 
+    prop_compose! {
+        pub fn invalid_trans_limit() (
+            (l, g) in less_great(10_000..10_000_000i64, 10_000..10_000_000i64),
+            balance in 0..i64::MAX
+        ) -> SetLimit {
+            SetLimit { limit: l, trans_limit: g, balance }
+        }
+    }
+
     proptest! {
         #[test]
-        fn valid_command(com in valid_com()) {
+        fn valid_command(com in set_limit()) {
             let result = unis::validate(&com, "zh");
             prop_assert!(result.is_ok());
         }
@@ -126,6 +138,13 @@ pub(super) mod tests {
             let result = unis::validate(&com, "zh");
             prop_assert!(result.is_err());
             prop_assert!(result.unwrap_err().contains("最小值为 0"))
+        }
+
+        #[test]
+        fn trans_limit(com in invalid_trans_limit()) {
+            let result = unis::validate(&com, "zh");
+            prop_assert!(result.is_err());
+            prop_assert!(result.unwrap_err().contains("交易限额不得大于控制限额"))
         }
     }
 }

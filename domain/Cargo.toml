@@ -7,6 +7,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+test-utils = ["dep:proptest", "dep:proptest-state-machine"]
+
 [dependencies]
 unis.workspace = true
 
@@ -17,8 +20,9 @@ rkyv.workspace = true
 validator.workspace = true
 chrono.workspace = true
 
+proptest = { workspace = true, optional = true }
+proptest-state-machine = { workspace = true, optional = true }
+
 [dev-dependencies]
 unis = { workspace = true, features = ["full"] }
-
-proptest.workspace = true
-proptest-state-machine.workspace = true
+domain = { path = ".", features = ["test-utils"] }

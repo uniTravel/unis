@@ -59,21 +59,22 @@ impl Event for AccountApproved {
     }
 }
 
+#[cfg(feature = "test-utils")]
+proptest::prop_compose! {
+    pub fn approve() (
+        approved_by in crate::tests::long_string(1),
+        approved in proptest::bool::ANY,
+        limit in 10_000..10_000_000i64
+    ) -> ApproveAccount {
+        ApproveAccount { approved_by, approved, limit }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
     use crate::tests::*;
     use proptest::prelude::*;
-
-    prop_compose! {
-        pub fn valid_com() (
-            approved_by in long_string(1),
-            approved in prop::bool::ANY,
-            limit in 10_000..10_000_000i64
-        ) -> ApproveAccount {
-            ApproveAccount { approved_by, approved, limit }
-        }
-    }
 
     prop_compose! {
         fn invalid_limit_range() (
@@ -87,7 +88,7 @@ pub(super) mod tests {
 
     proptest! {
         #[test]
-        fn valid_command(com in valid_com()) {
+        fn valid_command(com in approve()) {
             let result = unis::validate(&com, "zh");
             prop_assert!(result.is_ok());
         }

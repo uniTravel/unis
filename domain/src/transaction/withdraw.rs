@@ -52,18 +52,19 @@ impl Event for WithdrawFinished {
     }
 }
 
+#[cfg(feature = "test-utils")]
+proptest::prop_compose! {
+    pub fn withdraw() (
+        amount in 1..i64::MAX
+    ) -> Withdraw {
+        Withdraw { amount }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
     use proptest::prelude::*;
-
-    prop_compose! {
-        pub fn valid_com() (
-            amount in 1..i64::MAX
-        ) -> Withdraw {
-            Withdraw { amount }
-        }
-    }
 
     prop_compose! {
         fn invalid_amount_range() (
@@ -75,7 +76,7 @@ pub(super) mod tests {
 
     proptest! {
         #[test]
-        fn valid_command(com in valid_com()) {
+        fn valid_command(com in withdraw()) {
             let result = unis::validate(&com, "zh");
             prop_assert!(result.is_ok());
         }

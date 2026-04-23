@@ -22,6 +22,7 @@ tracing-appender.workspace = true
 [dev-dependencies]
 unis = { workspace = true, features = ["test-utils"] }
 unis-kafka = { workspace = true }
+domain = { path = "../../domain", features = ["test-utils"] }
 
 rstest.workspace = true
 proptest.workspace = true
@@ -29,3 +30,4 @@ proptest-state-machine.workspace = true
 uuid.workspace = true
 rkyv.workspace = true
 serde.workspace = true
+chrono.workspace = true

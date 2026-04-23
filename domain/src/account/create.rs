@@ -47,20 +47,21 @@ impl Event for AccountCreated {
     }
 }
 
+#[cfg(feature = "test-utils")]
+proptest::prop_compose! {
+    pub fn create() (
+        code in crate::tests::digit_string(6),
+        owner in crate::tests::long_string(1)
+    ) -> CreateAccount {
+        CreateAccount { code, owner }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
     use crate::tests::*;
     use proptest::prelude::*;
-
-    prop_compose! {
-        pub fn valid_com() (
-            code in digit_string(6),
-            owner in long_string(1)
-        ) -> CreateAccount {
-            CreateAccount { code, owner }
-        }
-    }
 
     prop_compose! {
         fn invalid_code_length() (
@@ -82,7 +83,7 @@ pub(super) mod tests {
 
     proptest! {
         #[test]
-        fn valid_command(com in valid_com()) {
+        fn valid_command(com in create()) {
             let result = unis::validate(&com, "zh");
             prop_assert!(result.is_ok());
         }

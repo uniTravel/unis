@@ -52,24 +52,24 @@ impl Event for AccountVerified {
     }
 }
 
+#[cfg(feature = "test-utils")]
+proptest::prop_compose! {
+    pub fn verify() (
+        verified_by in crate::tests::long_string(1),
+        verified in proptest::bool::ANY
+    ) -> VerifyAccount {
+        VerifyAccount { verified_by, verified }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
-    use crate::tests::*;
     use proptest::prelude::*;
-
-    prop_compose! {
-        pub fn valid_com() (
-            verified_by in long_string(1),
-            verified in prop::bool::ANY
-        ) -> VerifyAccount {
-            VerifyAccount { verified_by, verified }
-        }
-    }
 
     proptest! {
         #[test]
-        fn valid_command(com in valid_com()) {
+        fn valid_command(com in verify()) {
             let result = unis::validate(&com, "zh");
             prop_assert!(result.is_ok());
         }

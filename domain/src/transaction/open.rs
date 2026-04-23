@@ -46,19 +46,20 @@ impl Event for PeriodOpened {
     }
 }
 
+#[cfg(feature = "test-utils")]
+proptest::prop_compose! {
+    pub fn open() (
+        account_code in crate::tests::digit_string(6)
+    ) -> OpenPeriod {
+        OpenPeriod { account_code }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
     use crate::tests::*;
     use proptest::prelude::*;
-
-    prop_compose! {
-        pub fn valid_com() (
-            account_code in digit_string(6)
-        ) -> OpenPeriod {
-            OpenPeriod { account_code }
-        }
-    }
 
     prop_compose! {
         fn invalid_code_length() (
@@ -78,7 +79,7 @@ pub(super) mod tests {
 
     proptest! {
         #[test]
-        fn valid_command(com in valid_com()) {
+        fn valid_command(com in open()) {
             let result = unis::validate(&com, "zh");
             prop_assert!(result.is_ok());
         }

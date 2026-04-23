@@ -1,5 +1,5 @@
-#[cfg(test)]
-mod tests;
+#[cfg(feature = "test-utils")]
+pub mod tests;
 mod validate;
 
 pub mod account;

@@ -45,18 +45,19 @@ impl Event for TransLimitSetted {
     }
 }
 
+#[cfg(feature = "test-utils")]
+proptest::prop_compose! {
+    pub fn set_trans_limit() (
+        trans_limit in 10_000..10_000_000i64
+    ) -> SetTransLimit {
+        SetTransLimit { trans_limit }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
     use proptest::prelude::*;
-
-    prop_compose! {
-        pub fn valid_com() (
-            trans_limit in 10_000..10_000_000i64
-        ) -> SetTransLimit {
-            SetTransLimit { trans_limit }
-        }
-    }
 
     prop_compose! {
         fn invalid_trans_limit_range() (
@@ -68,7 +69,7 @@ pub(super) mod tests {
 
     proptest! {
         #[test]
-        fn valid_command(com in valid_com()) {
+        fn valid_command(com in set_trans_limit()) {
             let result = unis::validate(&com, "zh");
             prop_assert!(result.is_ok());
         }

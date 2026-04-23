@@ -21,6 +21,25 @@ pub use transfer_in::TransferIn;
 pub use transfer_out::TransferOut;
 pub use withdraw::Withdraw;
 
+#[cfg(feature = "test-utils")]
+pub use change_limit::change_limit;
+#[cfg(feature = "test-utils")]
+pub use deposit::deposit;
+#[cfg(feature = "test-utils")]
+pub use init::init;
+#[cfg(feature = "test-utils")]
+pub use open::open;
+#[cfg(feature = "test-utils")]
+pub use set_limit::set_limit;
+#[cfg(feature = "test-utils")]
+pub use set_trans_limit::set_trans_limit;
+#[cfg(feature = "test-utils")]
+pub use transfer_in::transfer_in;
+#[cfg(feature = "test-utils")]
+pub use transfer_out::transfer_out;
+#[cfg(feature = "test-utils")]
+pub use withdraw::withdraw;
+
 use unis::{
     domain::{Command, CommandEnum, Event, Load},
     errors::UniError,

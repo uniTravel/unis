@@ -13,6 +13,33 @@ pub struct RefAccount {
     approved: bool,
 }
 
+impl RefAccount {
+    fn can_create(&self) -> bool {
+        self.code.is_empty() && self.verified_by.is_empty() && self.approved_by.is_empty()
+    }
+
+    fn can_verify(&self) -> bool {
+        !self.code.is_empty() && self.verified_by.is_empty() && self.approved_by.is_empty()
+    }
+
+    fn can_approve(&self) -> bool {
+        !self.code.is_empty() && !self.verified_by.is_empty() && self.approved_by.is_empty()
+    }
+
+    fn can_limit(&self) -> bool {
+        !self.code.is_empty() && !self.verified_by.is_empty() && !self.approved_by.is_empty()
+    }
+
+    fn can_transition(&self, transition: &AccountCommand) -> bool {
+        match transition {
+            AccountCommand::Create(_) => self.can_create(),
+            AccountCommand::Verify(_) => self.can_verify(),
+            AccountCommand::Approve(_) => self.can_approve(),
+            AccountCommand::Limit(_) => self.can_limit(),
+        }
+    }
+}
+
 impl ReferenceStateMachine for RefAccount {
     type State = RefAccount;
     type Transition = AccountCommand;
@@ -38,11 +65,7 @@ impl ReferenceStateMachine for RefAccount {
                 verified: false,
                 approved_by,
                 approved: false,
-            } if code.is_empty() && verified_by.is_empty() && approved_by.is_empty() => {
-                create::tests::valid_com()
-                    .prop_map(AccountCommand::Create)
-                    .boxed()
-            }
+            } if state.can_create() => create().prop_map(AccountCommand::Create).boxed(),
             RefAccount {
                 code: _,
                 limit: 0,
@@ -50,9 +73,7 @@ impl ReferenceStateMachine for RefAccount {
                 verified: false,
                 approved_by,
                 approved: false,
-            } if verified_by.is_empty() && approved_by.is_empty() => verify::tests::valid_com()
-                .prop_map(AccountCommand::Verify)
-                .boxed(),
+            } if state.can_verify() => verify().prop_map(AccountCommand::Verify).boxed(),
             RefAccount {
                 code: _,
                 limit: 0,
@@ -60,9 +81,7 @@ impl ReferenceStateMachine for RefAccount {
                 verified: _,
                 approved_by,
                 approved: false,
-            } if approved_by.is_empty() => approve::tests::valid_com()
-                .prop_map(AccountCommand::Approve)
-                .boxed(),
+            } if state.can_approve() => approve().prop_map(AccountCommand::Approve).boxed(),
             RefAccount {
                 code: _,
                 limit: _,
@@ -70,9 +89,7 @@ impl ReferenceStateMachine for RefAccount {
                 verified: true,
                 approved_by,
                 approved: _,
-            } if !approved_by.is_empty() => limit::tests::valid_com()
-                .prop_map(AccountCommand::Limit)
-                .boxed(),
+            } if state.can_limit() => limit().prop_map(AccountCommand::Limit).boxed(),
             _ => {
                 println!("{:#?}", state);
                 panic!("状态描述不完整");
@@ -84,12 +101,10 @@ impl ReferenceStateMachine for RefAccount {
         match transition {
             AccountCommand::Create(com) => {
                 state.code = com.code.clone();
-                state
             }
             AccountCommand::Verify(com) => {
                 state.verified_by = com.verified_by.clone();
                 state.verified = com.verified;
-                state
             }
             AccountCommand::Approve(com) => {
                 if state.verified {
@@ -97,22 +112,21 @@ impl ReferenceStateMachine for RefAccount {
                     state.approved = com.approved;
                     state.limit = com.limit;
                 }
-                state
             }
             AccountCommand::Limit(com) => {
                 if state.approved {
                     state.limit = com.limit;
                 }
-                state
             }
         }
+        state
     }
 
     fn preconditions(state: &Self::State, transition: &Self::Transition) -> bool {
-        match transition {
+        (match transition {
             AccountCommand::Limit(com) => com.limit != state.limit,
             _ => true,
-        }
+        }) && state.can_transition(transition)
     }
 }
 
@@ -134,25 +148,22 @@ impl StateMachineTest for Account {
         match transition {
             AccountCommand::Create(com) => {
                 let _ = com.process(&mut state);
-                state
             }
             AccountCommand::Verify(com) => {
                 let _ = com.process(&mut state);
-                state
             }
             AccountCommand::Approve(com) => {
                 if ref_state.verified {
                     let _ = com.process(&mut state);
                 }
-                state
             }
             AccountCommand::Limit(com) => {
                 if ref_state.approved {
                     let _ = com.process(&mut state);
                 }
-                state
             }
         }
+        state
     }
 
     fn check_invariants(
@@ -176,9 +187,9 @@ prop_state_machine! {
 proptest! {
     #[test]
     fn start_account(
-        verify_account in verify::tests::valid_com(),
-        approve_account in approve::tests::valid_com(),
-        limit_account in limit::tests::valid_com(),
+        verify_account in verify(),
+        approve_account in approve(),
+        limit_account in limit(),
     ) {
         let mut agg = Account::new(uuid::Uuid::new_v4());
 
@@ -189,10 +200,10 @@ proptest! {
 
     #[test]
     fn stop_account_verified_false(
-        create_account in create::tests::valid_com(),
-        verify_account in verify::tests::valid_com(),
-        approve_account in approve::tests::valid_com(),
-        limit_account in limit::tests::valid_com(),
+        create_account in create(),
+        verify_account in verify(),
+        approve_account in approve(),
+        limit_account in limit(),
     ) {
         let mut agg = Account::new(uuid::Uuid::new_v4());
         prop_assert!(create_account.process(&mut agg).is_ok());
@@ -206,10 +217,10 @@ proptest! {
 
     #[test]
     fn stop_account_approved_false(
-        create_account in create::tests::valid_com(),
-        verify_account in verify::tests::valid_com(),
-        approve_account in approve::tests::valid_com(),
-        limit_account in limit::tests::valid_com(),
+        create_account in create(),
+        verify_account in verify(),
+        approve_account in approve(),
+        limit_account in limit(),
     ) {
         let mut agg = Account::new(uuid::Uuid::new_v4());
         prop_assert!(create_account.process(&mut agg).is_ok());
@@ -225,9 +236,9 @@ proptest! {
 
     #[test]
     fn state_account_created(
-        create_account in create::tests::valid_com(),
-        approve_account in approve::tests::valid_com(),
-        limit_account in limit::tests::valid_com(),
+        create_account in create(),
+        approve_account in approve(),
+        limit_account in limit(),
     ) {
         let mut agg = Account::new(uuid::Uuid::new_v4());
         prop_assert!(create_account.process(&mut agg).is_ok());
@@ -238,9 +249,9 @@ proptest! {
 
     #[test]
     fn state_account_verified_true(
-        create_account in create::tests::valid_com(),
-        verify_account in verify::tests::valid_com(),
-        limit_account in limit::tests::valid_com(),
+        create_account in create(),
+        verify_account in verify(),
+        limit_account in limit(),
     ) {
         let mut agg = Account::new(uuid::Uuid::new_v4());
         prop_assert!(create_account.process(&mut agg).is_ok());
@@ -253,9 +264,9 @@ proptest! {
 
     #[test]
     fn state_account_approved_true(
-        create_account in create::tests::valid_com(),
-        verify_account in verify::tests::valid_com(),
-        approve_account in approve::tests::valid_com(),
+        create_account in create(),
+        verify_account in verify(),
+        approve_account in approve(),
     ) {
         let mut agg = Account::new(uuid::Uuid::new_v4());
         prop_assert!(create_account.process(&mut agg).is_ok());
@@ -270,10 +281,10 @@ proptest! {
 
     #[test]
     fn limit_account_restrict(
-        create_account in create::tests::valid_com(),
-        verify_account in verify::tests::valid_com(),
-        approve_account in approve::tests::valid_com(),
-        mut limit_account in limit::tests::valid_com(),
+        create_account in create(),
+        verify_account in verify(),
+        approve_account in approve(),
+        mut limit_account in limit(),
     ) {
         let mut agg = Account::new(uuid::Uuid::new_v4());
         prop_assert!(create_account.process(&mut agg).is_ok());

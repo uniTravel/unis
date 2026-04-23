@@ -11,6 +11,15 @@ pub use create::CreateAccount;
 pub use limit::LimitAccount;
 pub use verify::VerifyAccount;
 
+#[cfg(feature = "test-utils")]
+pub use approve::approve;
+#[cfg(feature = "test-utils")]
+pub use create::create;
+#[cfg(feature = "test-utils")]
+pub use limit::limit;
+#[cfg(feature = "test-utils")]
+pub use verify::verify;
+
 use unis::{
     domain::{Command, CommandEnum, Event, Load},
     errors::UniError,

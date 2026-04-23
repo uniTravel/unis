@@ -52,18 +52,19 @@ impl Event for LimitChanged {
     }
 }
 
+#[cfg(feature = "test-utils")]
+proptest::prop_compose! {
+    pub fn change_limit() (
+        limit in 10_000..10_000_000i64
+    ) -> ChangeLimit {
+        ChangeLimit { limit }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
     use proptest::prelude::*;
-
-    prop_compose! {
-        pub fn valid_com() (
-            limit in 10_000..10_000_000i64
-        ) -> ChangeLimit {
-            ChangeLimit { limit }
-        }
-    }
 
     prop_compose! {
         fn invalid_limit_range() (
@@ -75,7 +76,7 @@ pub(super) mod tests {
 
     proptest! {
         #[test]
-        fn valid_command(com in valid_com()) {
+        fn valid_command(com in change_limit()) {
             let result = unis::validate(&com, "zh");
             prop_assert!(result.is_ok());
         }

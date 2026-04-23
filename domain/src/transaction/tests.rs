@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::*;
 use proptest::prelude::*;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 use unis::domain::{Aggregate, Command};
@@ -9,6 +10,34 @@ pub struct RefTransaction {
     limit: i64,
     trans_limit: i64,
     balance: i64,
+}
+
+impl RefTransaction {
+    fn can_create(&self) -> bool {
+        self.account_code.is_empty()
+    }
+
+    fn can_set_limit(&self) -> bool {
+        !self.account_code.is_empty() && self.limit == 0
+    }
+
+    fn can_transaction(&self) -> bool {
+        self.limit > 0 && self.trans_limit > 0
+    }
+
+    fn can_transition(&self, transition: &TransactionCommand) -> bool {
+        match transition {
+            TransactionCommand::InitPeriod(_) => self.can_create(),
+            TransactionCommand::OpenPeriod(_) => self.can_create(),
+            TransactionCommand::SetLimit(_) => self.can_set_limit(),
+            TransactionCommand::ChangeLimit(_) => self.can_transaction(),
+            TransactionCommand::SetTransLimit(_) => self.can_transaction(),
+            TransactionCommand::Deposit(_) => self.can_transaction(),
+            TransactionCommand::Withdraw(_) => self.can_transaction(),
+            TransactionCommand::TransferOut(_) => self.can_transaction(),
+            TransactionCommand::TransferIn(_) => self.can_transaction(),
+        }
+    }
 }
 
 impl ReferenceStateMachine for RefTransaction {
@@ -32,9 +61,9 @@ impl ReferenceStateMachine for RefTransaction {
                 limit: 0,
                 trans_limit: 0,
                 balance: 0,
-            } if account_code.is_empty() => prop_oneof![
-                init::tests::valid_com().prop_map(TransactionCommand::InitPeriod),
-                open::tests::valid_com().prop_map(TransactionCommand::OpenPeriod)
+            } if state.can_create() => prop_oneof![
+                init().prop_map(TransactionCommand::InitPeriod),
+                open().prop_map(TransactionCommand::OpenPeriod)
             ]
             .boxed(),
             RefTransaction {
@@ -42,21 +71,21 @@ impl ReferenceStateMachine for RefTransaction {
                 limit: 0,
                 trans_limit: 0,
                 balance: 0,
-            } => set_limit::tests::valid_com()
-                .prop_map(TransactionCommand::SetLimit)
-                .boxed(),
+            } if state.can_set_limit() => {
+                set_limit().prop_map(TransactionCommand::SetLimit).boxed()
+            }
             RefTransaction {
                 account_code: _,
                 limit,
                 trans_limit,
                 balance: _,
-            } if limit > &0 && trans_limit > &0 => prop_oneof![
-                change_limit::tests::valid_com().prop_map(TransactionCommand::ChangeLimit),
-                set_trans_limit::tests::valid_com().prop_map(TransactionCommand::SetTransLimit),
-                deposit::tests::valid_com().prop_map(TransactionCommand::Deposit),
-                withdraw::tests::valid_com().prop_map(TransactionCommand::Withdraw),
-                transfer_in::tests::valid_com().prop_map(TransactionCommand::TransferIn),
-                transfer_out::tests::valid_com().prop_map(TransactionCommand::TransferOut)
+            } if state.can_transaction() => prop_oneof![
+                change_limit().prop_map(TransactionCommand::ChangeLimit),
+                set_trans_limit().prop_map(TransactionCommand::SetTransLimit),
+                deposit().prop_map(TransactionCommand::Deposit),
+                withdraw().prop_map(TransactionCommand::Withdraw),
+                transfer_in().prop_map(TransactionCommand::TransferIn),
+                transfer_out().prop_map(TransactionCommand::TransferOut)
             ]
             .boxed(),
             _ => {
@@ -72,50 +101,42 @@ impl ReferenceStateMachine for RefTransaction {
                 state.account_code = com.account_code.clone();
                 state.limit = com.limit;
                 state.trans_limit = com.limit;
-                state
             }
             TransactionCommand::OpenPeriod(com) => {
                 state.account_code = com.account_code.clone();
-                state
             }
             TransactionCommand::SetLimit(com) => {
                 state.limit = com.limit;
                 state.trans_limit = com.trans_limit;
                 state.balance = com.balance;
-                state
             }
             TransactionCommand::ChangeLimit(com) => {
                 state.limit = com.limit;
                 if state.trans_limit > com.limit {
                     state.trans_limit = com.limit;
                 }
-                state
             }
             TransactionCommand::SetTransLimit(com) => {
                 state.trans_limit = com.trans_limit;
-                state
             }
             TransactionCommand::Deposit(com) => {
                 state.balance += com.amount;
-                state
             }
             TransactionCommand::Withdraw(com) => {
                 state.balance -= com.amount;
-                state
             }
             TransactionCommand::TransferOut(com) => {
                 state.balance -= com.amount;
-                state
             }
             TransactionCommand::TransferIn(com) => {
                 state.balance += com.amount;
-                state
             }
         }
+        state
     }
 
     fn preconditions(state: &Self::State, transition: &Self::Transition) -> bool {
-        match transition {
+        (match transition {
             TransactionCommand::ChangeLimit(com) => com.limit != state.limit,
             TransactionCommand::SetTransLimit(com) => {
                 com.trans_limit <= state.limit && com.trans_limit != state.trans_limit
@@ -129,7 +150,7 @@ impl ReferenceStateMachine for RefTransaction {
             }
             TransactionCommand::TransferIn(com) => com.amount <= state.trans_limit,
             _ => true,
-        }
+        }) && state.can_transition(transition)
     }
 }
 
@@ -151,41 +172,33 @@ impl StateMachineTest for Transaction {
         match transition {
             TransactionCommand::InitPeriod(com) => {
                 let _ = com.process(&mut state);
-                state
             }
             TransactionCommand::OpenPeriod(com) => {
                 let _ = com.process(&mut state);
-                state
             }
             TransactionCommand::SetLimit(com) => {
                 let _ = com.process(&mut state);
-                state
             }
             TransactionCommand::ChangeLimit(com) => {
                 let _ = com.process(&mut state);
-                state
             }
             TransactionCommand::SetTransLimit(com) => {
                 let _ = com.process(&mut state);
-                state
             }
             TransactionCommand::Deposit(com) => {
                 let _ = com.process(&mut state);
-                state
             }
             TransactionCommand::Withdraw(com) => {
                 let _ = com.process(&mut state);
-                state
             }
             TransactionCommand::TransferOut(com) => {
                 let _ = com.process(&mut state);
-                state
             }
             TransactionCommand::TransferIn(com) => {
                 let _ = com.process(&mut state);
-                state
             }
         }
+        state
     }
 
     fn check_invariants(
@@ -196,6 +209,7 @@ impl StateMachineTest for Transaction {
         assert_eq!(ref_state.limit, state.limit);
         assert_eq!(ref_state.trans_limit, state.trans_limit);
         assert_eq!(ref_state.balance, state.balance);
+        assert!(state.trans_limit <= state.limit);
         assert!(state.balance >= 0)
     }
 }
@@ -205,35 +219,16 @@ prop_state_machine! {
     fn transaction_state_machine(sequential 1..7 => Transaction);
 }
 
-fn limit_trans() -> impl Strategy<Value = (i64, i64)> {
-    (10_000..10_000_000i64, 10_000..10_000_000i64)
-        .prop_filter("trans_limit 应大于 limit", |(l, t)| t > l)
-}
-
-fn amount_trans() -> impl Strategy<Value = (i64, i64)> {
-    (10_000..10_000_000i64).prop_flat_map(|t| {
-        let min = t + 1;
-        (Just(t), min..i64::MAX)
-    })
-}
-
-fn amount_balance() -> impl Strategy<Value = (i64, i64)> {
-    (1..i64::MAX).prop_flat_map(|b| {
-        let min = b + 1;
-        (Just(b), min..i64::MAX)
-    })
-}
-
 proptest! {
     #[test]
     fn start_transaction(
-        set_limit in set_limit::tests::valid_com(),
-        change_limit in change_limit::tests::valid_com(),
-        set_trans_limit in set_trans_limit::tests::valid_com(),
-        deposit in deposit::tests::valid_com(),
-        withdraw in withdraw::tests::valid_com(),
-        transfer_in in transfer_in::tests::valid_com(),
-        transfer_out in transfer_out::tests::valid_com(),
+        set_limit in set_limit(),
+        change_limit in change_limit(),
+        set_trans_limit in set_trans_limit(),
+        deposit in deposit(),
+        withdraw in withdraw(),
+        transfer_in in transfer_in(),
+        transfer_out in transfer_out(),
     ) {
         let mut agg = Transaction::new(uuid::Uuid::new_v4());
 
@@ -248,13 +243,13 @@ proptest! {
 
     #[test]
     fn state_transaction_opened(
-        open_period in open::tests::valid_com(),
-        change_limit in change_limit::tests::valid_com(),
-        set_trans_limit in set_trans_limit::tests::valid_com(),
-        deposit in deposit::tests::valid_com(),
-        withdraw in withdraw::tests::valid_com(),
-        transfer_in in transfer_in::tests::valid_com(),
-        transfer_out in transfer_out::tests::valid_com(),
+        open_period in open(),
+        change_limit in change_limit(),
+        set_trans_limit in set_trans_limit(),
+        deposit in deposit(),
+        withdraw in withdraw(),
+        transfer_in in transfer_in(),
+        transfer_out in transfer_out(),
     ) {
         let mut agg = Transaction::new(uuid::Uuid::new_v4());
         let _ = open_period.process(&mut agg);
@@ -269,8 +264,8 @@ proptest! {
 
     #[test]
     fn state_transaction_valid(
-        init_period in init::tests::valid_com(),
-        set_limit in set_limit::tests::valid_com(),
+        init_period in init(),
+        set_limit in set_limit(),
     ) {
         let mut agg = Transaction::new(uuid::Uuid::new_v4());
         let _ = init_period.process(&mut agg);
@@ -280,8 +275,8 @@ proptest! {
 
     #[test]
     fn change_limit_restrict(
-        init_period in init::tests::valid_com(),
-        mut change_limit in change_limit::tests::valid_com(),
+        init_period in init(),
+        mut change_limit in change_limit(),
     ) {
         let mut agg = Transaction::new(uuid::Uuid::new_v4());
         let _ = init_period.process(&mut agg);
@@ -292,9 +287,9 @@ proptest! {
 
     #[test]
     fn set_trans_limit_restrict(
-        init_period in init::tests::valid_com(),
-        mut set_trans_limit in set_trans_limit::tests::valid_com(),
-        (l, t) in limit_trans(),
+        init_period in init(),
+        mut set_trans_limit in set_trans_limit(),
+        (l, t) in less_great_equal(10_000..10_000_000i64, 10_000..10_000_000i64),
     ) {
         let mut agg = Transaction::new(uuid::Uuid::new_v4());
         let _ = init_period.process(&mut agg);
@@ -311,9 +306,9 @@ proptest! {
 
     #[test]
     fn deposit_restrict(
-        init_period in init::tests::valid_com(),
-        mut deposit in deposit::tests::valid_com(),
-        (t, a) in amount_trans(),
+        init_period in init(),
+        mut deposit in deposit(),
+        (t, a) in less_great(10_000..10_000_000i64, 1..i64::MAX),
     ) {
         let mut agg = Transaction::new(uuid::Uuid::new_v4());
         let _ = init_period.process(&mut agg);
@@ -325,10 +320,10 @@ proptest! {
 
     #[test]
     fn withdraw_restrict(
-        init_period in init::tests::valid_com(),
-        mut withdraw in withdraw::tests::valid_com(),
-        (t, a1) in amount_trans(),
-        (b, a2) in amount_balance(),
+        init_period in init(),
+        mut withdraw in withdraw(),
+        (t, a1) in less_great(10_000..10_000_000i64, 1..i64::MAX),
+        (b, a2) in less_great(0..i64::MAX, 1..i64::MAX),
     ) {
         let mut agg = Transaction::new(uuid::Uuid::new_v4());
         let _ = init_period.process(&mut agg);
@@ -347,9 +342,9 @@ proptest! {
 
     #[test]
     fn transfer_in_restrict(
-        init_period in init::tests::valid_com(),
-        mut transfer_in in transfer_in::tests::valid_com(),
-        (t, a) in amount_trans(),
+        init_period in init(),
+        mut transfer_in in transfer_in(),
+        (t, a) in less_great(10_000..10_000_000i64, 1..i64::MAX),
     ) {
         let mut agg = Transaction::new(uuid::Uuid::new_v4());
         let _ = init_period.process(&mut agg);
@@ -361,10 +356,10 @@ proptest! {
 
     #[test]
     fn transfer_out_restrict(
-        init_period in init::tests::valid_com(),
-        mut transfer_out in transfer_out::tests::valid_com(),
-        (t, a1) in amount_trans(),
-        (b, a2) in amount_balance(),
+        init_period in init(),
+        mut transfer_out in transfer_out(),
+        (t, a1) in less_great(10_000..10_000_000i64, 1..i64::MAX),
+        (b, a2) in less_great(0..i64::MAX, 1..i64::MAX),
     ) {
         let mut agg = Transaction::new(uuid::Uuid::new_v4());
         let _ = init_period.process(&mut agg);
