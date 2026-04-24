@@ -8,8 +8,9 @@ macro_rules! transaction_routes {
         route_builder!(
             transaction,
             $format,
-            [init, open],
             [
+                init,
+                open,
                 set_limit,
                 change_limit,
                 set_trans_limit,

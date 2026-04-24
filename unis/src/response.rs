@@ -12,6 +12,8 @@ pub enum UniResponse {
     Timeout = 3,
     /// 被冲突的新命令取代
     Conflict = 4,
+    /// 提取键错误
+    KeyError = 5,
     /// 命令已执行成功
     Duplicate = 11,
     /// 命令无法应用到聚合
@@ -37,6 +39,7 @@ impl UniResponse {
             2 => UniResponse::AuthError,
             3 => UniResponse::Timeout,
             4 => UniResponse::Conflict,
+            5 => UniResponse::KeyError,
             11 => UniResponse::Duplicate,
             12 => UniResponse::CheckError,
             13 => UniResponse::CodeError,
@@ -61,6 +64,7 @@ impl std::fmt::Display for UniResponse {
             UniResponse::AuthError => write!(f, "身份验证错误"),
             UniResponse::Timeout => write!(f, "请求超时"),
             UniResponse::Conflict => write!(f, "被冲突的新命令取代"),
+            UniResponse::KeyError => write!(f, "提取键错误"),
             UniResponse::Duplicate => write!(f, "命令已执行成功"),
             UniResponse::CheckError => write!(f, "命令无法应用到聚合"),
             UniResponse::CodeError => write!(f, "序列化错误"),

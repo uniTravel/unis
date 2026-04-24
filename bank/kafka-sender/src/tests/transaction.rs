@@ -174,39 +174,41 @@ async fn transaction_state_machine(#[future(awt)] app: &'static Router, ctx: &'s
         ref_state = RefTransaction::apply(ref_state, &transition);
         match transition {
             TransactionCommand::InitPeriod(com) => {
-                let (_, agg_id, body) = sender::create(app, PATH, "init", com).await;
+                let agg_id = Uuid::new_v4();
+                let (_, body) = apply(app, PATH, "init", agg_id, com).await;
                 state = process(body, Transaction::new(agg_id));
             }
             TransactionCommand::OpenPeriod(com) => {
-                let (_, agg_id, body) = sender::create(app, PATH, "open", com).await;
+                let agg_id = Uuid::new_v4();
+                let (_, body) = apply(app, PATH, "open", agg_id, com).await;
                 state = process(body, Transaction::new(agg_id));
             }
             TransactionCommand::SetLimit(com) => {
-                let (_, body) = sender::change(app, PATH, "set_limit", state.id(), com).await;
+                let (_, body) = apply(app, PATH, "set_limit", state.id(), com).await;
                 state = process(body, state);
             }
             TransactionCommand::ChangeLimit(com) => {
-                let (_, body) = sender::change(app, PATH, "change_limit", state.id(), com).await;
+                let (_, body) = apply(app, PATH, "change_limit", state.id(), com).await;
                 state = process(body, state);
             }
             TransactionCommand::SetTransLimit(com) => {
-                let (_, body) = sender::change(app, PATH, "set_trans_limit", state.id(), com).await;
+                let (_, body) = apply(app, PATH, "set_trans_limit", state.id(), com).await;
                 state = process(body, state);
             }
             TransactionCommand::Deposit(com) => {
-                let (_, body) = sender::change(app, PATH, "deposit", state.id(), com).await;
+                let (_, body) = apply(app, PATH, "deposit", state.id(), com).await;
                 state = process(body, state);
             }
             TransactionCommand::Withdraw(com) => {
-                let (_, body) = sender::change(app, PATH, "withdraw", state.id(), com).await;
+                let (_, body) = apply(app, PATH, "withdraw", state.id(), com).await;
                 state = process(body, state);
             }
             TransactionCommand::TransferOut(com) => {
-                let (_, body) = sender::change(app, PATH, "transfer_out", state.id(), com).await;
+                let (_, body) = apply(app, PATH, "transfer_out", state.id(), com).await;
                 state = process(body, state);
             }
             TransactionCommand::TransferIn(com) => {
-                let (_, body) = sender::change(app, PATH, "transfer_in", state.id(), com).await;
+                let (_, body) = apply(app, PATH, "transfer_in", state.id(), com).await;
                 state = process(body, state);
             }
         }
@@ -234,19 +236,20 @@ async fn state_transaction_opened(#[future(awt)] app: &'static Router, ctx: &'st
     let withdraw = withdraw().new_tree(&mut runner).unwrap().current();
     let transfer_in = transfer_in().new_tree(&mut runner).unwrap().current();
     let transfer_out = transfer_out().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, _) = sender::create(app, PATH, "open", open).await;
+    let agg_id = Uuid::new_v4();
+    apply(app, PATH, "open", agg_id, open).await;
 
-    let (s, _) = sender::change(app, PATH, "change_limit", agg_id, change_limit).await;
+    let (s, _) = apply(app, PATH, "change_limit", agg_id, change_limit).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
-    let (s, _) = sender::change(app, PATH, "set_trans_limit", agg_id, set_trans_limit).await;
+    let (s, _) = apply(app, PATH, "set_trans_limit", agg_id, set_trans_limit).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
-    let (s, _) = sender::change(app, PATH, "deposit", agg_id, deposit).await;
+    let (s, _) = apply(app, PATH, "deposit", agg_id, deposit).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
-    let (s, _) = sender::change(app, PATH, "withdraw", agg_id, withdraw).await;
+    let (s, _) = apply(app, PATH, "withdraw", agg_id, withdraw).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
-    let (s, _) = sender::change(app, PATH, "transfer_in", agg_id, transfer_in).await;
+    let (s, _) = apply(app, PATH, "transfer_in", agg_id, transfer_in).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
-    let (s, _) = sender::change(app, PATH, "transfer_out", agg_id, transfer_out).await;
+    let (s, _) = apply(app, PATH, "transfer_out", agg_id, transfer_out).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     ctx.teardown().await;
@@ -258,9 +261,10 @@ async fn state_transaction_valid(#[future(awt)] app: &'static Router, ctx: &'sta
     let mut runner = TestRunner::default();
     let init = init().new_tree(&mut runner).unwrap().current();
     let set_limit = set_limit().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, _) = sender::create(app, PATH, "init", init).await;
+    let agg_id = Uuid::new_v4();
+    apply(app, PATH, "init", agg_id, init).await;
 
-    let (s, _) = sender::change(app, PATH, "set_limit", agg_id, set_limit).await;
+    let (s, _) = apply(app, PATH, "set_limit", agg_id, set_limit).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     ctx.teardown().await;
@@ -271,13 +275,14 @@ async fn state_transaction_valid(#[future(awt)] app: &'static Router, ctx: &'sta
 async fn change_limit_restrict(#[future(awt)] app: &'static Router, ctx: &'static Context) {
     let mut runner = TestRunner::default();
     let init = init().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, body) = sender::create(app, PATH, "init", init).await;
+    let agg_id = Uuid::new_v4();
+    let (_, body) = apply(app, PATH, "init", agg_id, init).await;
     let mut state = Transaction::new(agg_id);
     state = process(body, state);
     let mut com = change_limit().new_tree(&mut runner).unwrap().current();
     com.limit = state.limit;
 
-    let (s, _) = sender::change(app, PATH, "change_limit", agg_id, com).await;
+    let (s, _) = apply(app, PATH, "change_limit", agg_id, com).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     ctx.teardown().await;
@@ -288,13 +293,14 @@ async fn change_limit_restrict(#[future(awt)] app: &'static Router, ctx: &'stati
 async fn set_trans_limit_restrict(#[future(awt)] app: &'static Router, ctx: &'static Context) {
     let mut runner = TestRunner::default();
     let init = init().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, body) = sender::create(app, PATH, "init", init).await;
+    let agg_id = Uuid::new_v4();
+    let (_, body) = apply(app, PATH, "init", agg_id, init).await;
     let mut state = Transaction::new(agg_id);
     state = process(body, state);
     let mut com = set_trans_limit().new_tree(&mut runner).unwrap().current();
     com.trans_limit = state.trans_limit;
 
-    let (s, _) = sender::change(app, PATH, "set_trans_limit", agg_id, com).await;
+    let (s, _) = apply(app, PATH, "set_trans_limit", agg_id, com).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     if state.limit < 10_000_000 {
@@ -304,7 +310,7 @@ async fn set_trans_limit_restrict(#[future(awt)] app: &'static Router, ctx: &'st
             .unwrap()
             .current();
 
-        let (s, _) = sender::change(app, PATH, "set_trans_limit", agg_id, com).await;
+        let (s, _) = apply(app, PATH, "set_trans_limit", agg_id, com).await;
         assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
     }
 
@@ -316,11 +322,12 @@ async fn set_trans_limit_restrict(#[future(awt)] app: &'static Router, ctx: &'st
 async fn deposit_restrict(#[future(awt)] app: &'static Router, ctx: &'static Context) {
     let mut runner = TestRunner::default();
     let open = open().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, body) = sender::create(app, PATH, "open", open).await;
+    let agg_id = Uuid::new_v4();
+    let (_, body) = apply(app, PATH, "open", agg_id, open).await;
     let mut state = Transaction::new(agg_id);
     state = process(body, state);
     let set_limit = set_limit().new_tree(&mut runner).unwrap().current();
-    let (_, body) = sender::change(app, PATH, "set_limit", agg_id, set_limit).await;
+    let (_, body) = apply(app, PATH, "set_limit", agg_id, set_limit).await;
     state = process(body, state);
     let mut com = deposit().new_tree(&mut runner).unwrap().current();
     com.amount = (state.trans_limit + 1..)
@@ -328,7 +335,7 @@ async fn deposit_restrict(#[future(awt)] app: &'static Router, ctx: &'static Con
         .unwrap()
         .current();
 
-    let (s, _) = sender::change(app, PATH, "deposit", agg_id, com).await;
+    let (s, _) = apply(app, PATH, "deposit", agg_id, com).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     ctx.teardown().await;
@@ -339,11 +346,12 @@ async fn deposit_restrict(#[future(awt)] app: &'static Router, ctx: &'static Con
 async fn withdraw_restrict(#[future(awt)] app: &'static Router, ctx: &'static Context) {
     let mut runner = TestRunner::default();
     let open = open().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, body) = sender::create(app, PATH, "open", open).await;
+    let agg_id = Uuid::new_v4();
+    let (_, body) = apply(app, PATH, "open", agg_id, open).await;
     let mut state = Transaction::new(agg_id);
     state = process(body, state);
     let set_limit = set_limit().new_tree(&mut runner).unwrap().current();
-    let (_, body) = sender::change(app, PATH, "set_limit", agg_id, set_limit).await;
+    let (_, body) = apply(app, PATH, "set_limit", agg_id, set_limit).await;
     state = process(body, state);
     let mut com = withdraw().new_tree(&mut runner).unwrap().current();
     com.amount = (state.trans_limit + 1..)
@@ -351,7 +359,7 @@ async fn withdraw_restrict(#[future(awt)] app: &'static Router, ctx: &'static Co
         .unwrap()
         .current();
 
-    let (s, _) = sender::change(app, PATH, "withdraw", agg_id, com).await;
+    let (s, _) = apply(app, PATH, "withdraw", agg_id, com).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     let mut com = withdraw().new_tree(&mut runner).unwrap().current();
@@ -360,7 +368,7 @@ async fn withdraw_restrict(#[future(awt)] app: &'static Router, ctx: &'static Co
         .unwrap()
         .current();
 
-    let (s, _) = sender::change(app, PATH, "withdraw", agg_id, com).await;
+    let (s, _) = apply(app, PATH, "withdraw", agg_id, com).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     ctx.teardown().await;
@@ -371,11 +379,12 @@ async fn withdraw_restrict(#[future(awt)] app: &'static Router, ctx: &'static Co
 async fn transfer_in_restrict(#[future(awt)] app: &'static Router, ctx: &'static Context) {
     let mut runner = TestRunner::default();
     let open = open().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, body) = sender::create(app, PATH, "open", open).await;
+    let agg_id = Uuid::new_v4();
+    let (_, body) = apply(app, PATH, "open", agg_id, open).await;
     let mut state = Transaction::new(agg_id);
     state = process(body, state);
     let set_limit = set_limit().new_tree(&mut runner).unwrap().current();
-    let (_, body) = sender::change(app, PATH, "set_limit", agg_id, set_limit).await;
+    let (_, body) = apply(app, PATH, "set_limit", agg_id, set_limit).await;
     state = process(body, state);
     let mut com = transfer_in().new_tree(&mut runner).unwrap().current();
     com.amount = (state.trans_limit + 1..)
@@ -383,7 +392,7 @@ async fn transfer_in_restrict(#[future(awt)] app: &'static Router, ctx: &'static
         .unwrap()
         .current();
 
-    let (s, _) = sender::change(app, PATH, "transfer_in", agg_id, com).await;
+    let (s, _) = apply(app, PATH, "transfer_in", agg_id, com).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     ctx.teardown().await;
@@ -394,11 +403,12 @@ async fn transfer_in_restrict(#[future(awt)] app: &'static Router, ctx: &'static
 async fn transfer_out_restrict(#[future(awt)] app: &'static Router, ctx: &'static Context) {
     let mut runner = TestRunner::default();
     let open = open().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, body) = sender::create(app, PATH, "open", open).await;
+    let agg_id = Uuid::new_v4();
+    let (_, body) = apply(app, PATH, "open", agg_id, open).await;
     let mut state = Transaction::new(agg_id);
     state = process(body, state);
     let set_limit = set_limit().new_tree(&mut runner).unwrap().current();
-    let (_, body) = sender::change(app, PATH, "set_limit", agg_id, set_limit).await;
+    let (_, body) = apply(app, PATH, "set_limit", agg_id, set_limit).await;
     state = process(body, state);
     let mut com = transfer_out().new_tree(&mut runner).unwrap().current();
     com.amount = (state.trans_limit + 1..)
@@ -406,7 +416,7 @@ async fn transfer_out_restrict(#[future(awt)] app: &'static Router, ctx: &'stati
         .unwrap()
         .current();
 
-    let (s, _) = sender::change(app, PATH, "transfer_out", agg_id, com).await;
+    let (s, _) = apply(app, PATH, "transfer_out", agg_id, com).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     let mut com = transfer_out().new_tree(&mut runner).unwrap().current();
@@ -415,7 +425,7 @@ async fn transfer_out_restrict(#[future(awt)] app: &'static Router, ctx: &'stati
         .unwrap()
         .current();
 
-    let (s, _) = sender::change(app, PATH, "transfer_out", agg_id, com).await;
+    let (s, _) = apply(app, PATH, "transfer_out", agg_id, com).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     ctx.teardown().await;

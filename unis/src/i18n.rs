@@ -56,6 +56,7 @@ pub(crate) fn response(res: UniResponse, lang: &str) -> (StatusCode, String) {
         UniResponse::AuthError => (StatusCode::UNAUTHORIZED, "auth"),
         UniResponse::Timeout => (StatusCode::REQUEST_TIMEOUT, "timeout"),
         UniResponse::Conflict => (StatusCode::CONFLICT, "conflict"),
+        UniResponse::KeyError => (StatusCode::BAD_REQUEST, "key"),
         UniResponse::CheckError => (StatusCode::INTERNAL_SERVER_ERROR, "check"),
         UniResponse::CodeError => (StatusCode::INTERNAL_SERVER_ERROR, "code"),
         UniResponse::MsgError => (StatusCode::INTERNAL_SERVER_ERROR, "msg"),

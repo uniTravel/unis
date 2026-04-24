@@ -58,9 +58,6 @@ pub struct Context {
     subscriber_types: Mutex<AHashSet<TypeId>>,
     #[cfg(feature = "sender")]
     sender_types: Mutex<AHashSet<TypeId>>,
-    #[doc(hidden)]
-    #[cfg(any(test, feature = "test-utils"))]
-    agg_ids: Arc<DashMap<Uuid, Uuid, RandomState>>,
 }
 
 impl Context {
@@ -73,8 +70,6 @@ impl Context {
             subscriber_types: Mutex::new(AHashSet::new()),
             #[cfg(feature = "sender")]
             sender_types: Mutex::new(AHashSet::new()),
-            #[cfg(any(test, feature = "test-utils"))]
-            agg_ids: Arc::new(DashMap::with_hasher(RandomState::new())),
         }
     }
 
@@ -187,17 +182,6 @@ impl Context {
     pub async fn teardown(&self) {
         self.shutdown().await;
         self.all_done().await;
-    }
-
-    #[cfg(any(test, feature = "test-utils"))]
-    pub(crate) fn insert(&self, com_id: Uuid, agg_id: Uuid) -> Option<Uuid> {
-        self.agg_ids.insert(com_id, agg_id)
-    }
-
-    #[doc(hidden)]
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn remove(&self, com_id: &Uuid) -> Option<(Uuid, Uuid)> {
-        self.agg_ids.remove(com_id)
     }
 }
 

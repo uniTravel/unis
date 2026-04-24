@@ -372,30 +372,17 @@ fn process_message(
     }
 }
 
-/// 为创建聚合的命令构造处理器
+/// 为聚合命令构造处理器
 #[macro_export]
-macro_rules! create_handler {
+macro_rules! com_handler {
     ($func_name:ident, $c:ty, $com:ty, $variant:ident) => {
         pub async fn $func_name<F>(
-            Path(com_id): Path<Uuid>,
+            axum::Extension(key): axum::Extension<UniKey>,
             State(svc): State<Arc<crate::KafkaSender<$c>>>,
             UniCommand(com, lang, _): UniCommand<$com, F>,
         ) -> Result<Vec<u8>, (axum::http::StatusCode, String)> {
-            svc.create(com_id, <$c>::$variant(com), &lang).await
-        }
-    };
-}
-
-/// 为变更聚合的命令构造处理器
-#[macro_export]
-macro_rules! change_handler {
-    ($func_name:ident, $c:ty, $com:ty, $variant:ident) => {
-        pub async fn $func_name<F>(
-            Path(UniKey { agg_id, com_id }): Path<UniKey>,
-            State(svc): State<Arc<crate::KafkaSender<$c>>>,
-            UniCommand(com, lang, _): UniCommand<$com, F>,
-        ) -> Result<Vec<u8>, (axum::http::StatusCode, String)> {
-            svc.change(agg_id, com_id, <$c>::$variant(com), &lang).await
+            svc.apply(key.agg_id, key.com_id, <$c>::$variant(com), &lang)
+                .await
         }
     };
 }

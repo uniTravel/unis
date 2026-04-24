@@ -5,7 +5,7 @@ use unis::{JsonFormat, RkyvFormat, route_builder};
 
 macro_rules! account_routes {
     ($format:ty) => {
-        route_builder!(account, $format, [create], [verify, limit, approve])
+        route_builder!(account, $format, [create, verify, limit, approve])
     };
 }
 

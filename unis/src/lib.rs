@@ -31,7 +31,7 @@ pub use crate::response::UniResponse;
 #[cfg(any(test, feature = "test-utils"))]
 pub use i18n::validate;
 #[cfg(feature = "sender")]
-pub use request::{JsonFormat, RkyvFormat, UniCommand, UniKey};
+pub use request::{JsonFormat, RkyvFormat, UniCommand, UniKey, key_middleware};
 
 use crate::domain::CommandEnum;
 use rkyv::{

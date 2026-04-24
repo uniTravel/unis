@@ -1,22 +1,21 @@
-use axum::extract::{Path, State};
+use axum::extract::State;
 use domain::transaction::*;
 use std::sync::Arc;
 use unis::{UniCommand, UniKey, sender::Sender};
-use unis_kafka::{change_handler, create_handler};
-use uuid::Uuid;
+use unis_kafka::com_handler;
 
-create_handler!(init, TransactionCommand, InitPeriod, InitPeriod);
-create_handler!(open, TransactionCommand, OpenPeriod, OpenPeriod);
+com_handler!(init, TransactionCommand, InitPeriod, InitPeriod);
+com_handler!(open, TransactionCommand, OpenPeriod, OpenPeriod);
 
-change_handler!(set_limit, TransactionCommand, SetLimit, SetLimit);
-change_handler!(change_limit, TransactionCommand, ChangeLimit, ChangeLimit);
-change_handler!(
+com_handler!(set_limit, TransactionCommand, SetLimit, SetLimit);
+com_handler!(change_limit, TransactionCommand, ChangeLimit, ChangeLimit);
+com_handler!(
     set_trans_limit,
     TransactionCommand,
     SetTransLimit,
     SetTransLimit
 );
-change_handler!(deposit, TransactionCommand, Deposit, Deposit);
-change_handler!(withdraw, TransactionCommand, Withdraw, Withdraw);
-change_handler!(transfer_out, TransactionCommand, TransferOut, TransferOut);
-change_handler!(transfer_in, TransactionCommand, TransferIn, TransferIn);
+com_handler!(deposit, TransactionCommand, Deposit, Deposit);
+com_handler!(withdraw, TransactionCommand, Withdraw, Withdraw);
+com_handler!(transfer_out, TransactionCommand, TransferOut, TransferOut);
+com_handler!(transfer_in, TransactionCommand, TransferIn, TransferIn);

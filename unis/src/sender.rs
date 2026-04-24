@@ -32,23 +32,9 @@ where
     /// 请求处理回复
     fn send(&self, todo: Todo<A, C, E>) -> Result<(), SendError<Todo<A, C, E>>>;
 
-    /// 发送创建聚合命令
-    #[inline(always)]
-    fn create(
-        &self,
-        com_id: Uuid,
-        com: C,
-        lang: &str,
-    ) -> impl Future<Output = Result<Vec<u8>, (axum::http::StatusCode, String)>> {
-        let agg_id = ::uuid::Uuid::new_v4();
-        #[cfg(any(test, feature = "test-utils"))]
-        crate::app::test_context().insert(com_id, agg_id);
-        self.change(agg_id, com_id, com, lang)
-    }
-
-    /// 发送变更聚合命令
+    /// 发送聚合命令
     #[instrument(name = "send_command", skip_all, fields(topic = self.topic(), %agg_id, %com_id))]
-    fn change(
+    fn apply(
         &self,
         agg_id: Uuid,
         com_id: Uuid,
@@ -123,57 +109,21 @@ where
 /// 为聚合类型构造路由
 #[macro_export]
 macro_rules! route_builder {
-    ($agg:ident, $format:ty, [$($cr:ident), *], [$($ch:ident), *]) => {{
+    ($agg:ident, $format:ty, [$($com:ident), *]) => {{
         let mut router = Router::new();
         $(
             router = router.route(
-                concat!("/", stringify!($agg), "/", stringify!($cr), "/{com_id}"),
-                post($cr::<$format>),
+                concat!("/", stringify!($agg), "/", stringify!($com)),
+                post($com::<$format>),
             );
         )*
-        $(
-            router = router.route(
-                concat!("/", stringify!($agg), "/", stringify!($ch), "/{agg_id}/{com_id}"),
-                post($ch::<$format>),
-            );
-        )*
-        router
+        router.layer(axum::middleware::from_fn(unis::key_middleware))
     }};
 }
 
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
-pub async fn create(
-    app: &'static axum::Router,
-    path: &str,
-    op: &str,
-    com: impl crate::domain::Command,
-) -> (axum::http::StatusCode, Uuid, axum::body::Bytes) {
-    let app = app.clone();
-    let com_id = Uuid::new_v4();
-    let path = format!("{path}/{op}/{com_id}");
-    let res = tower::ServiceExt::oneshot(
-        app,
-        axum::http::Request::post(path)
-            .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
-            .body(axum::body::Body::from(
-                rkyv::api::high::to_bytes_in::<Vec<u8>, Error>(&com, Vec::new()).unwrap(),
-            ))
-            .unwrap(),
-    )
-    .await
-    .unwrap();
-    let status = res.status();
-    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let (_, agg_id) = crate::app::test_context().remove(&com_id).unwrap();
-    (status, agg_id, body)
-}
-
-#[doc(hidden)]
-#[cfg(any(test, feature = "test-utils"))]
-pub async fn change(
+pub async fn apply(
     app: &'static axum::Router,
     path: &str,
     op: &str,
@@ -182,11 +132,21 @@ pub async fn change(
 ) -> (axum::http::StatusCode, axum::body::Bytes) {
     let app = app.clone();
     let com_id = Uuid::new_v4();
-    let path = format!("{path}/{op}/{agg_id}/{com_id}");
+    let span_id = Uuid::new_v4();
+    let path = format!("{path}/{op}");
     let res = tower::ServiceExt::oneshot(
         app,
         axum::http::Request::post(path)
             .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
+            .header(
+                "traceparent",
+                format!(
+                    "00-{}-{:016x}-01",
+                    com_id.as_simple(),
+                    span_id.as_u64_pair().0,
+                ),
+            )
+            .header("x-agg-id", agg_id.to_string())
             .body(axum::body::Body::from(
                 rkyv::api::high::to_bytes_in::<Vec<u8>, Error>(&com, Vec::new()).unwrap(),
             ))

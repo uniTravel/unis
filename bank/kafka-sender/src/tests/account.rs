@@ -182,22 +182,23 @@ async fn account_state_machine(#[future(awt)] app: &'static Router, ctx: &'stati
         ref_state = RefAccount::apply(ref_state, &transition);
         match transition {
             AccountCommand::Create(com) => {
-                let (_, agg_id, body) = sender::create(app, PATH, "create", com).await;
+                let agg_id = Uuid::new_v4();
+                let (_, body) = apply(app, PATH, "create", agg_id, com).await;
                 state = process(body, Account::new(agg_id));
             }
             AccountCommand::Verify(com) => {
-                let (_, body) = sender::change(app, PATH, "verify", state.id(), com).await;
+                let (_, body) = apply(app, PATH, "verify", state.id(), com).await;
                 state = process(body, state);
             }
             AccountCommand::Approve(com) => {
                 if ref_state.verified {
-                    let (_, body) = sender::change(app, PATH, "approve", state.id(), com).await;
+                    let (_, body) = apply(app, PATH, "approve", state.id(), com).await;
                     state = process(body, state);
                 }
             }
             AccountCommand::Limit(com) => {
                 if ref_state.approved {
-                    let (_, body) = sender::change(app, PATH, "limit", state.id(), com).await;
+                    let (_, body) = apply(app, PATH, "limit", state.id(), com).await;
                     state = process(body, state);
                 }
             }
@@ -224,14 +225,15 @@ async fn stop_account_verified_false(#[future(awt)] app: &'static Router, ctx: &
     let false_verify = false_verify().new_tree(&mut runner).unwrap().current();
     let approve = approve().new_tree(&mut runner).unwrap().current();
     let limit = limit().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, _) = sender::create(app, PATH, "create", create).await;
-    sender::change(app, PATH, "verify", agg_id, false_verify).await;
+    let agg_id = Uuid::new_v4();
+    apply(app, PATH, "create", agg_id, create).await;
+    apply(app, PATH, "verify", agg_id, false_verify).await;
 
-    let (s, _) = sender::change(app, PATH, "verify", agg_id, verify).await;
+    let (s, _) = apply(app, PATH, "verify", agg_id, verify).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
-    let (s, _) = sender::change(app, PATH, "approve", agg_id, approve).await;
+    let (s, _) = apply(app, PATH, "approve", agg_id, approve).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
-    let (s, _) = sender::change(app, PATH, "limit", agg_id, limit).await;
+    let (s, _) = apply(app, PATH, "limit", agg_id, limit).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     ctx.teardown().await;
@@ -247,15 +249,16 @@ async fn stop_account_approved_false(#[future(awt)] app: &'static Router, ctx: &
     let approve = approve().new_tree(&mut runner).unwrap().current();
     let false_approve = false_approve().new_tree(&mut runner).unwrap().current();
     let limit = limit().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, _) = sender::create(app, PATH, "create", create).await;
-    sender::change(app, PATH, "verify", agg_id, true_verify).await;
-    sender::change(app, PATH, "approve", agg_id, false_approve).await;
+    let agg_id = Uuid::new_v4();
+    apply(app, PATH, "create", agg_id, create).await;
+    apply(app, PATH, "verify", agg_id, true_verify).await;
+    apply(app, PATH, "approve", agg_id, false_approve).await;
 
-    let (s, _) = sender::change(app, PATH, "verify", agg_id, verify).await;
+    let (s, _) = apply(app, PATH, "verify", agg_id, verify).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
-    let (s, _) = sender::change(app, PATH, "approve", agg_id, approve).await;
+    let (s, _) = apply(app, PATH, "approve", agg_id, approve).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
-    let (s, _) = sender::change(app, PATH, "limit", agg_id, limit).await;
+    let (s, _) = apply(app, PATH, "limit", agg_id, limit).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     ctx.teardown().await;
@@ -268,11 +271,12 @@ async fn state_account_created(#[future(awt)] app: &'static Router, ctx: &'stati
     let create = create().new_tree(&mut runner).unwrap().current();
     let approve = approve().new_tree(&mut runner).unwrap().current();
     let limit = limit().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, _) = sender::create(app, PATH, "create", create).await;
+    let agg_id = Uuid::new_v4();
+    apply(app, PATH, "create", agg_id, create).await;
 
-    let (s, _) = sender::change(app, PATH, "approve", agg_id, approve).await;
+    let (s, _) = apply(app, PATH, "approve", agg_id, approve).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
-    let (s, _) = sender::change(app, PATH, "limit", agg_id, limit).await;
+    let (s, _) = apply(app, PATH, "limit", agg_id, limit).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     ctx.teardown().await;
@@ -286,12 +290,13 @@ async fn state_account_verified_true(#[future(awt)] app: &'static Router, ctx: &
     let verify = verify().new_tree(&mut runner).unwrap().current();
     let true_verify = true_verify().new_tree(&mut runner).unwrap().current();
     let limit = limit().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, _) = sender::create(app, PATH, "create", create).await;
-    sender::change(app, PATH, "verify", agg_id, true_verify).await;
+    let agg_id = Uuid::new_v4();
+    apply(app, PATH, "create", agg_id, create).await;
+    apply(app, PATH, "verify", agg_id, true_verify).await;
 
-    let (s, _) = sender::change(app, PATH, "verify", agg_id, verify).await;
+    let (s, _) = apply(app, PATH, "verify", agg_id, verify).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
-    let (s, _) = sender::change(app, PATH, "limit", agg_id, limit).await;
+    let (s, _) = apply(app, PATH, "limit", agg_id, limit).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     ctx.teardown().await;
@@ -306,13 +311,14 @@ async fn state_account_approved_true(#[future(awt)] app: &'static Router, ctx: &
     let true_verify = true_verify().new_tree(&mut runner).unwrap().current();
     let approve = approve().new_tree(&mut runner).unwrap().current();
     let true_approve = true_approve().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, _) = sender::create(app, PATH, "create", create).await;
-    sender::change(app, PATH, "verify", agg_id, true_verify).await;
-    sender::change(app, PATH, "approve", agg_id, true_approve).await;
+    let agg_id = Uuid::new_v4();
+    apply(app, PATH, "create", agg_id, create).await;
+    apply(app, PATH, "verify", agg_id, true_verify).await;
+    apply(app, PATH, "approve", agg_id, true_approve).await;
 
-    let (s, _) = sender::change(app, PATH, "verify", agg_id, verify).await;
+    let (s, _) = apply(app, PATH, "verify", agg_id, verify).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
-    let (s, _) = sender::change(app, PATH, "approve", agg_id, approve).await;
+    let (s, _) = apply(app, PATH, "approve", agg_id, approve).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     ctx.teardown().await;
@@ -325,17 +331,18 @@ async fn limit_account_restrict(#[future(awt)] app: &'static Router, ctx: &'stat
     let create = create().new_tree(&mut runner).unwrap().current();
     let true_verify = true_verify().new_tree(&mut runner).unwrap().current();
     let true_approve = true_approve().new_tree(&mut runner).unwrap().current();
-    let (_, agg_id, body) = sender::create(app, PATH, "create", create).await;
+    let agg_id = Uuid::new_v4();
+    let (_, body) = apply(app, PATH, "create", agg_id, create).await;
     let mut state = Account::new(agg_id);
     state = process(body, state);
-    let (_, body) = sender::change(app, PATH, "verify", agg_id, true_verify).await;
+    let (_, body) = apply(app, PATH, "verify", agg_id, true_verify).await;
     state = process(body, state);
-    let (_, body) = sender::change(app, PATH, "approve", agg_id, true_approve).await;
+    let (_, body) = apply(app, PATH, "approve", agg_id, true_approve).await;
     state = process(body, state);
     let mut com = limit().new_tree(&mut runner).unwrap().current();
     com.limit = state.limit;
 
-    let (s, _) = sender::change(app, PATH, "limit", agg_id, com).await;
+    let (s, _) = apply(app, PATH, "limit", agg_id, com).await;
     assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
 
     ctx.teardown().await;
