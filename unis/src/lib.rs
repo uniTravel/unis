@@ -4,6 +4,8 @@
 
 #![warn(missing_docs)]
 
+#[cfg(feature = "axum")]
+mod axum;
 #[cfg(feature = "sender")]
 mod i18n;
 #[cfg(feature = "sender")]
@@ -29,9 +31,14 @@ pub mod macros {
 pub use crate::response::UniResponse;
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
+pub use axum::apply;
+#[cfg(feature = "axum")]
+pub use axum::{AxumCommand, into, key_middleware};
+#[doc(hidden)]
+#[cfg(any(test, feature = "test-utils"))]
 pub use i18n::validate;
 #[cfg(feature = "sender")]
-pub use request::{JsonFormat, RkyvFormat, UniCommand, UniKey, key_middleware};
+pub use request::{JsonFormat, RkyvFormat, UniKey};
 
 use crate::domain::CommandEnum;
 use rkyv::{

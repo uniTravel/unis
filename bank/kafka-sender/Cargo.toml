@@ -8,26 +8,28 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-unis = { workspace = true, features = ["sender"] }
+unis = { workspace = true, features = ["axum"] }
 unis-kafka = { workspace = true, features = ["sender"] }
 domain = { path = "../../domain" }
 
-uuid.workspace = true
 tokio.workspace = true
-axum.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender.workspace = true
+axum.workspace = true
+utoipa.workspace = true
+utoipa-redoc.workspace = true
+utoipa-scalar.workspace = true
 
 [dev-dependencies]
 unis = { workspace = true, features = ["test-utils"] }
 unis-kafka = { workspace = true }
 domain = { path = "../../domain", features = ["test-utils"] }
 
+uuid.workspace = true
+chrono.workspace = true
+rkyv.workspace = true
+serde.workspace = true
 rstest.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
-uuid.workspace = true
-rkyv.workspace = true
-serde.workspace = true
-chrono.workspace = true

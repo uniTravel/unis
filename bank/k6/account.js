@@ -11,7 +11,7 @@ export const options = {
     },
 }
 
-const baseUrl = 'http://localhost:3000/api/v1/json/account'
+const baseUrl = 'http://localhost:3000/v1/account'
 
 export default function () {
     let comId, spanId, traceparent, params, data, res;

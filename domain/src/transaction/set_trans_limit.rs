@@ -7,6 +7,8 @@ use unis::{
 #[command]
 pub struct SetTransLimit {
     #[validate(range(min = 10_000, max = 10_000_000, code = "range_num"))]
+    #[schema(minimum = 10000, maximum = 10000000)]
+    /// 交易限额
     pub trans_limit: i64,
 }
 

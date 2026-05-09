@@ -13,12 +13,13 @@ test-utils = ["dep:proptest", "dep:proptest-state-machine"]
 [dependencies]
 unis.workspace = true
 
-ahash.workspace = true
 uuid.workspace = true
+chrono.workspace = true
+ahash.workspace = true
 serde.workspace = true
 rkyv.workspace = true
 validator.workspace = true
-chrono.workspace = true
+utoipa.workspace = true
 
 proptest = { workspace = true, optional = true }
 proptest-state-machine = { workspace = true, optional = true }

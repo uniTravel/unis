@@ -1,23 +1,5 @@
-use crate::{UniResponse, domain::Command, i18n};
-use axum::{
-    body::Bytes,
-    extract::{FromRequest, Json, Request},
-    http::{HeaderMap, StatusCode, header::ACCEPT_LANGUAGE},
-    middleware::Next,
-    response::{IntoResponse, Response},
-};
-use rkyv::{
-    Archive, Deserialize,
-    bytecheck::CheckBytes,
-    de::Pool,
-    rancor::{Error, Strategy},
-    util::AlignedVec,
-    validation::{Validator, archive::ArchiveValidator, shared::SharedValidator},
-};
-use serde::de::DeserializeOwned;
-use std::marker::PhantomData;
+use http::HeaderMap;
 use uuid::Uuid;
-use validator::Validate;
 
 /// 命令请求的路径参数
 #[derive(Clone, Debug)]
@@ -73,7 +55,7 @@ fn parse_traceparent(tp: &str) -> Result<Uuid, String> {
     Uuid::parse_str(&uuid_str).map_err(|e| format!("无法解析为 UUID: {}", e))
 }
 
-fn extract_key(headers: &HeaderMap) -> Option<UniKey> {
+pub(crate) fn extract_key(headers: &HeaderMap) -> Option<UniKey> {
     if let Some(tp) = headers.get("traceparent").and_then(|v| v.to_str().ok()) {
         match parse_traceparent(tp) {
             Ok(com_id) => {
@@ -94,108 +76,7 @@ fn extract_key(headers: &HeaderMap) -> Option<UniKey> {
     None
 }
 
-/// 处理键值的中间件
-pub async fn key_middleware(mut req: Request, next: Next) -> Response {
-    let lang = extract_language(&req);
-    match extract_key(req.headers()) {
-        Some(key) => {
-            req.extensions_mut().insert(key.clone());
-            let mut res = next.run(req).await;
-            let headers = res.headers_mut();
-            headers.insert("x-agg-id", key.agg_id.to_string().parse().unwrap());
-            headers.insert("x-com-id", key.com_id.to_string().parse().unwrap());
-            res
-        }
-        None => i18n::response(UniResponse::KeyError, &lang).into_response(),
-    }
-}
-
 /// Json 格式
 pub struct JsonFormat;
 /// Rkyv 格式
 pub struct RkyvFormat;
-
-/// 解析命令请求体
-pub struct UniCommand<T, F>(pub T, pub String, pub PhantomData<F>);
-
-impl<T, S> FromRequest<S> for UniCommand<T, RkyvFormat>
-where
-    T: Command + Validate,
-    <T as Archive>::Archived: Deserialize<T, Strategy<Pool, Error>>,
-    <T as Archive>::Archived:
-        for<'m> CheckBytes<Strategy<Validator<ArchiveValidator<'m>, SharedValidator>, Error>>,
-    Bytes: FromRequest<S>,
-    S: Send + Sync,
-{
-    type Rejection = Response;
-
-    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let lang = extract_language(&req);
-        let bytes = Bytes::from_request(req, state)
-            .await
-            .map_err(|e| e.into_response())?;
-
-        let required_align = std::mem::align_of::<T::Archived>();
-        let com = match bytes.as_ptr().align_offset(required_align) {
-            0 => rkyv::from_bytes::<T, Error>(&bytes)
-                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?,
-            _ => {
-                let mut aligned = AlignedVec::<16>::with_capacity(bytes.len());
-                aligned.extend_from_slice(&bytes);
-                rkyv::from_bytes::<T, Error>(&aligned)
-                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?
-            }
-        };
-
-        com.validate().map_err(|e| {
-            let mut result = String::new();
-            let err = match i18n::validation(&mut result, &e, &lang) {
-                Ok(()) => result,
-                Err(_) => e.to_string(),
-            };
-            (StatusCode::BAD_REQUEST, err).into_response()
-        })?;
-
-        Ok(UniCommand(com, lang, PhantomData))
-    }
-}
-
-impl<T, S> FromRequest<S> for UniCommand<T, JsonFormat>
-where
-    T: Command + Validate + DeserializeOwned,
-    Bytes: FromRequest<S>,
-    S: Send + Sync,
-{
-    type Rejection = Response;
-
-    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let lang = extract_language(&req);
-        let bytes = Bytes::from_request(req, state)
-            .await
-            .map_err(|e| e.into_response())?;
-
-        let Json(com) = Json::<T>::from_bytes(&bytes).map_err(|e| e.into_response())?;
-
-        com.validate().map_err(|e| {
-            let mut result = String::new();
-            let err = match i18n::validation(&mut result, &e, &lang) {
-                Ok(()) => result,
-                Err(_) => e.to_string(),
-            };
-            (StatusCode::BAD_REQUEST, err).into_response()
-        })?;
-
-        Ok(UniCommand(com, lang, PhantomData))
-    }
-}
-
-fn extract_language(req: &Request) -> String {
-    req.headers()
-        .get(ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|ls| ls.split(',').next())
-        .and_then(|l| l.split(';').next())
-        .and_then(|t| t.split('-').next())
-        .unwrap_or("zh")
-        .to_string()
-}

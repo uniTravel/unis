@@ -22,30 +22,38 @@ repository = "https://github.com/uniTravel/unis"
 [workspace.dependencies]
 unis = { version = "0.1.9", path = "./unis" }
 unis-kafka = { version = "0.1.7", path = "./unis-kafka" }
-unis-macros = { version = "0.1.4", path = "./unis-macros" }
+unis-macros = { version = "0.1.5", path = "./unis-macros" }
 unis-utils = { version = "0.1.0", path = "./unis-utils" }
 
-uuid = { version = "1.0", features = ["v4", "serde"] }
-ahash = "0.8"
-dashmap = "6.1"
-crossbeam = "0.8"
-serde = { version = "1.0", features = ["derive"] }
-rkyv = { version = "0.8", features = ["uuid-1"] }
+# 基础
+uuid = { version = "1", features = ["v4", "serde"] }
 chrono = "0.4"
-
-tokio = { version = "1.0", features = ["full"] }
-axum = "0.8"
-
-tracing = { version = "0.1", features = ["release_max_level_info", "valuable"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-appender = "0.2"
-thiserror = "2.0"
-
+ahash = "0.8"
+dashmap = "6"
+crossbeam = "0.8"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+rkyv = { version = "0.8", features = ["uuid-1"] }
 config = "0.15"
 validator = { version = "0.20", features = ["derive"] }
 
+# Api
+http = "1"
+axum = "0.8"
+utoipa = "5"
+utoipa-redoc = { version = "6", features = ["axum"] }
+utoipa-scalar = { version = "0.3", features = ["axum"] }
+
+# 流存储
 rdkafka = "0.39"
 
+# 诊断
+tracing = { version = "0.1", features = ["release_max_level_info", "valuable"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+thiserror = "2"
+
+# 测试
 rstest = "0.26"
-proptest = "1.11"
+proptest = "1"
 proptest-state-machine = "0.8"

@@ -7,7 +7,10 @@ use unis::{
 #[command]
 pub struct VerifyAccount {
     #[validate(length(min = 1))]
+    #[schema(min_length = 1)]
+    /// 审核人
     pub verified_by: String,
+    /// 审核结论
     pub verified: bool,
 }
 

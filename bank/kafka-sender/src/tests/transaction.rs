@@ -17,7 +17,7 @@ async fn app() -> &'static Router {
     .await
 }
 
-const PATH: &str = "/api/v1/rkyv/transaction";
+const PATH: &str = "/rkyv/v1/transaction";
 
 #[derive(Clone, Debug)]
 struct RefTransaction {

@@ -12,8 +12,12 @@ pub struct InitPeriod {
         length(equal = 6, code = "exact_length"),
         custom(function = "validate::code")
     )]
+    #[schema(pattern = r"^\d{6}$")]
+    /// 账号
     pub account_code: String,
     #[validate(range(min = 10_000, max = 10_000_000, code = "range_num"))]
+    #[schema(minimum = 10000, maximum = 10000000)]
+    /// 账户限额
     pub limit: i64,
 }
 

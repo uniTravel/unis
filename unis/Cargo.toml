@@ -11,6 +11,7 @@ repository.workspace = true
 [features]
 subscriber = []
 sender = []
+axum = ["dep:axum", "dep:tower"]
 test-utils = []
 full = ["subscriber", "sender", "test-utils"]
 
@@ -20,15 +21,15 @@ unis-macros.workspace = true
 uuid.workspace = true
 ahash.workspace = true
 dashmap.workspace = true
+tokio.workspace = true
 serde.workspace = true
 rkyv.workspace = true
-tokio.workspace = true
-axum.workspace = true
+config.workspace = true
+validator.workspace = true
+http.workspace = true
+
+axum = { workspace = true, optional = true }
+tower = { version = "0.5", features = ["util"], optional = true }
 
 tracing.workspace = true
 thiserror.workspace = true
-
-config.workspace = true
-validator.workspace = true
-
-tower = { version = "0.5", features = ["util"] }

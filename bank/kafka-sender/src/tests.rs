@@ -14,8 +14,8 @@ use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
 use unis::{
     app::{self, Context},
+    apply,
     domain::{Aggregate, Event, EventEnum},
-    sender::apply,
 };
 use unis_kafka::sender::KafkaSender;
 use uuid::Uuid;

@@ -12,7 +12,7 @@ async fn app() -> &'static Router {
     .await
 }
 
-const PATH: &str = "/api/v1/rkyv/account";
+const PATH: &str = "/rkyv/v1/account";
 
 prop_compose! {
     fn true_verify() (

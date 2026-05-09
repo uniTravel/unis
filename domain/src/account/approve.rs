@@ -7,9 +7,14 @@ use unis::{
 #[command]
 pub struct ApproveAccount {
     #[validate(length(min = 1))]
+    #[schema(min_length = 1)]
+    /// 审批人
     pub approved_by: String,
+    /// 审批结论
     pub approved: bool,
     #[validate(range(min = 10_000, max = 10_000_000, code = "range_num"))]
+    #[schema(minimum = 10000, maximum = 10000000)]
+    /// 账户限额
     pub limit: i64,
 }
 

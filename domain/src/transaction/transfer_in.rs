@@ -11,8 +11,12 @@ pub struct TransferIn {
         length(equal = 6, code = "exact_length"),
         custom(function = "validate::code")
     )]
+    #[schema(pattern = r"^\d{6}$")]
+    /// 转出账号
     pub out_code: String,
     #[validate(range(min = 1, code = "min_num"))]
+    #[schema(minimum = 1)]
+    /// 金额
     pub amount: i64,
 }
 

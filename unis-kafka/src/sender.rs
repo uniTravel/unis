@@ -371,18 +371,3 @@ fn process_message(
         res => Ok((agg_id, com_id, Err(res))),
     }
 }
-
-/// 为聚合命令构造处理器
-#[macro_export]
-macro_rules! com_handler {
-    ($func_name:ident, $c:ty, $com:ty, $variant:ident) => {
-        pub async fn $func_name<F>(
-            axum::Extension(key): axum::Extension<UniKey>,
-            State(svc): State<Arc<crate::KafkaSender<$c>>>,
-            UniCommand(com, lang, _): UniCommand<$com, F>,
-        ) -> Result<Vec<u8>, (axum::http::StatusCode, String)> {
-            svc.apply(key.agg_id, key.com_id, <$c>::$variant(com), &lang)
-                .await
-        }
-    };
-}

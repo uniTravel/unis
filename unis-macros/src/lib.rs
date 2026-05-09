@@ -104,12 +104,12 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// 规范命令结构体定义
 ///
-/// 1. 添加 #[derive(Debug, Clone, ::serde::Deserialize, ::validator::Validate, ::rkyv::Archive, ::rkyv::Deserialize, ::rkyv::Serialize)]。
+/// 1. 添加 #[derive(Debug, Clone, ::utoipa::ToSchema, ::serde::Deserialize, ::validator::Validate, ::rkyv::Archive, ::rkyv::Deserialize, ::rkyv::Serialize)]。
 #[proc_macro_attribute]
 pub fn command(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemStruct);
     let expanded = quote! {
-        #[derive(Debug, Clone, ::serde::Deserialize, ::validator::Validate, ::rkyv::Archive, ::rkyv::Deserialize, ::rkyv::Serialize)]
+        #[derive(Debug, Clone, ::utoipa::ToSchema, ::serde::Deserialize, ::validator::Validate, ::rkyv::Archive, ::rkyv::Deserialize, ::rkyv::Serialize)]
         #input
     };
     TokenStream::from(expanded)

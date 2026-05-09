@@ -12,6 +12,8 @@ pub struct OpenPeriod {
         length(equal = 6, code = "exact_length"),
         custom(function = "validate::code")
     )]
+    #[schema(pattern = r"^\d{6}$")]
+    /// 账号
     pub account_code: String,
 }
 

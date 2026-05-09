@@ -4,7 +4,7 @@ use crate::errors::UniError;
 use ahash::AHashSet;
 use rkyv::{
     Archive, Deserialize, Serialize,
-    api::high::to_bytes_with_alloc,
+    api::high::{to_bytes_in_with_alloc, to_bytes_with_alloc},
     de::Pool,
     rancor::{Error, Strategy},
     ser::{
@@ -74,6 +74,12 @@ pub trait Command:
         let evt = self.apply(&na);
         evt.process(na);
         Ok(evt)
+    }
+
+    /// 序列化
+    #[inline(always)]
+    fn to_bytes_in(&self, arena: &mut Arena) -> Result<Vec<u8>, Error> {
+        Ok(to_bytes_in_with_alloc(self, Vec::new(), arena.acquire())?)
     }
 }
 

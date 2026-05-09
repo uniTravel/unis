@@ -8,12 +8,12 @@ use unis_kafka::sender::KafkaSender;
 
 pub fn account_routes() -> Router<Arc<KafkaSender<AccountCommand>>> {
     Router::new()
-        .nest("/api/v1/rkyv", account::rkyv_routes())
-        .nest("/api/v1/json", account::json_routes())
+        .nest("/rkyv/v1", account::rkyv_routes())
+        .nest("/v1", account::json_routes())
 }
 
 pub fn transaction_routes() -> Router<Arc<KafkaSender<TransactionCommand>>> {
     Router::new()
-        .nest("/api/v1/rkyv", transaction::rkyv_routes())
-        .nest("/api/v1/json", transaction::json_routes())
+        .nest("/rkyv/v1", transaction::rkyv_routes())
+        .nest("/v1", transaction::json_routes())
 }

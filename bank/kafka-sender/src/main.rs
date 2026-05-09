@@ -3,13 +3,17 @@ mod routes;
 #[cfg(test)]
 mod tests;
 
-use axum::{Router, routing::get};
+use axum::Router;
 use domain::{account::AccountCommand, transaction::TransactionCommand};
+use handlers::{account, transaction};
 use std::sync::Arc;
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
 use unis::app;
 use unis_kafka::sender::KafkaSender;
+use utoipa::OpenApi;
+use utoipa_scalar::{Scalar, Servable};
+// use utoipa_redoc::{Redoc, Servable};
 
 #[tokio::main]
 async fn main() {
@@ -24,7 +28,8 @@ async fn main() {
     let svc_account = Arc::new(ctx.setup::<_, KafkaSender<AccountCommand>>().await);
     let svc_transaction = Arc::new(ctx.setup::<_, KafkaSender<TransactionCommand>>().await);
     let app = Router::new()
-        .route("/", get(|| async { "Hello, World!" }))
+        .merge(Scalar::with_url("/", ApiDoc::openapi()))
+        // .merge(Redoc::with_url("/", ApiDoc::openapi()))
         .merge(routes::account_routes().with_state(svc_account))
         .merge(routes::transaction_routes().with_state(svc_transaction));
 
@@ -33,3 +38,13 @@ async fn main() {
         .with_graceful_shutdown(ctx.all_done())
         .await;
 }
+
+#[derive(OpenApi)]
+#[openapi(
+    info(title = "账户管理"),
+    nest(
+        (path = "/v1/account", api = account::AccountApi),
+        (path = "/v1/transaction", api = transaction::TransactionApi)
+    )
+)]
+struct ApiDoc;

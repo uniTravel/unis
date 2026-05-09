@@ -17,21 +17,20 @@ full = ["subscriber", "sender", "projector", "test-utils"]
 
 [dependencies]
 unis.workspace = true
+rdkafka.workspace = true
 
 uuid.workspace = true
 ahash.workspace = true
 dashmap.workspace = true
 crossbeam.workspace = true
-rkyv.workspace = true
 tokio.workspace = true
-rdkafka.workspace = true
+rkyv.workspace = true
+config.workspace = true
 
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender.workspace = true
 thiserror.workspace = true
-
-config.workspace = true
 
 [dev-dependencies]
 domain = { path = "../domain" }

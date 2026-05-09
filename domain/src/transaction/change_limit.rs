@@ -7,6 +7,8 @@ use unis::{
 #[command]
 pub struct ChangeLimit {
     #[validate(range(min = 10_000, max = 10_000_000, code = "range_num"))]
+    #[schema(minimum = 10000, maximum = 10000000)]
+    /// 账户限额
     pub limit: i64,
 }
 

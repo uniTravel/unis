@@ -9,10 +9,16 @@ use unis::{
 #[validate(schema(function = "validate::validate_set_limit"))]
 pub struct SetLimit {
     #[validate(range(min = 10_000, max = 10_000_000, code = "range_num"))]
+    #[schema(minimum = 10000, maximum = 10000000)]
+    /// 账户限额
     pub limit: i64,
     #[validate(range(min = 10_000, max = 10_000_000, code = "range_num"))]
+    #[schema(minimum = 10000, maximum = 10000000)]
+    /// 交易限额
     pub trans_limit: i64,
     #[validate(range(min = 0, code = "min_num"))]
+    #[schema(minimum = 0)]
+    /// 余额
     pub balance: i64,
 }
 

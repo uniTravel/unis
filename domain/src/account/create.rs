@@ -11,8 +11,12 @@ pub struct CreateAccount {
         length(equal = 6, code = "exact_length"),
         custom(function = "validate::code")
     )]
+    #[schema(pattern = r"^\d{6}$")]
+    /// 账号
     pub code: String,
     #[validate(length(min = 1))]
+    #[schema(min_length = 1)]
+    /// 申请人
     pub owner: String,
 }
 
