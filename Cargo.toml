@@ -41,7 +41,6 @@ validator = { version = "0.20", features = ["derive"] }
 http = "1"
 axum = "0.8"
 utoipa = "5"
-utoipa-redoc = { version = "6", features = ["axum"] }
 utoipa-scalar = { version = "0.3", features = ["axum"] }
 
 # 流存储

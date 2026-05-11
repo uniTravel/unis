@@ -18,7 +18,6 @@ tracing-subscriber.workspace = true
 tracing-appender.workspace = true
 axum.workspace = true
 utoipa.workspace = true
-utoipa-redoc.workspace = true
 utoipa-scalar.workspace = true
 
 [dev-dependencies]

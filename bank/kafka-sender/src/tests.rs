@@ -1,13 +1,12 @@
 mod account;
 mod transaction;
 
-use crate::routes;
 use axum::{Router, body::Bytes, http::StatusCode};
 use domain::tests::*;
 use proptest::{prelude::*, strategy::ValueTree, test_runner::TestRunner};
 use proptest_state_machine::ReferenceStateMachine;
 use rstest::{fixture, rstest};
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 use tokio::sync::OnceCell;
 use tracing::Level;
 use tracing_appender::non_blocking;
@@ -17,7 +16,6 @@ use unis::{
     apply,
     domain::{Aggregate, Event, EventEnum},
 };
-use unis_kafka::sender::KafkaSender;
 use uuid::Uuid;
 
 static SETUP: LazyLock<()> = LazyLock::new(|| {

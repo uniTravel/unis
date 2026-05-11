@@ -1,5 +1,11 @@
-use super::*;
-use crate::tests::*;
+use crate::{
+    tests::{less_great, less_great_equal},
+    transaction::{
+        Transaction, TransactionCommand, change_limit, deposit, init, open,
+        set_limit, set_trans_limit, transfer_in, transfer_out,
+        withdraw,
+    },
+};
 use proptest::prelude::*;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 use unis::domain::{Aggregate, Command};
@@ -71,9 +77,9 @@ impl ReferenceStateMachine for RefTransaction {
                 limit: 0,
                 trans_limit: 0,
                 balance: 0,
-            } if state.can_set_limit() => {
-                set_limit().prop_map(TransactionCommand::SetLimit).boxed()
-            }
+            } if state.can_set_limit() => set_limit()
+                .prop_map(TransactionCommand::SetLimit)
+                .boxed(),
             RefTransaction {
                 account_code: _,
                 limit,

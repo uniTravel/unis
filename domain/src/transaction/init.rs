@@ -6,6 +6,7 @@ use unis::{
     macros::{command, event},
 };
 
+/// * 账户设立时执行一次，后续都是打开交易期。
 #[command]
 pub struct InitPeriod {
     #[validate(

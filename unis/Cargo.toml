@@ -11,7 +11,7 @@ repository.workspace = true
 [features]
 subscriber = []
 sender = []
-axum = ["dep:axum", "dep:tower"]
+axum = ["dep:axum", "dep:tower", "sender"]
 test-utils = []
 full = ["subscriber", "sender", "test-utils"]
 

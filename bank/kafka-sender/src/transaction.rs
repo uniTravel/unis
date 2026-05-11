@@ -1,23 +1,11 @@
-use super::*;
+use axum::{Extension, Router, extract::State, http::StatusCode};
 use domain::transaction::*;
-
-#[derive(OpenApi)]
-#[openapi(paths(
-    init,
-    open,
-    set_limit,
-    change_limit,
-    set_trans_limit,
-    deposit,
-    withdraw,
-    transfer_in,
-    transfer_out
-))]
-pub struct TransactionApi;
+use std::sync::Arc;
+use unis::{AxumCommand, UniKey, sender::Sender};
+use unis_kafka::sender::KafkaSender;
+use utoipa::OpenApi;
 
 /// 初始化交易期
-///
-/// * 账户设立时执行一次，后续都是打开交易期。
 #[utoipa::path(post, path = "/init", request_body = InitPeriod)]
 pub async fn init<F>(
     Extension(UniKey { agg_id, com_id }): Extension<UniKey>,
@@ -31,8 +19,6 @@ pub async fn init<F>(
 }
 
 /// 打开交易期
-///
-/// * 每个月末打开新的交易期，待结转交易限额后方可交易。
 #[utoipa::path(post, path = "/open", request_body = OpenPeriod)]
 pub async fn open<F>(
     Extension(UniKey { agg_id, com_id }): Extension<UniKey>,
@@ -46,9 +32,6 @@ pub async fn open<F>(
 }
 
 /// 结转交易限额
-///
-/// > **⚠️ 注意**
-/// * 交易限额不得大于账户限额。
 #[utoipa::path(post, path = "/set_limit", request_body = SetLimit)]
 pub async fn set_limit<F>(
     Extension(UniKey { agg_id, com_id }): Extension<UniKey>,
@@ -137,4 +120,43 @@ pub async fn transfer_out<F>(
         .apply(agg_id, com_id, TransactionCommand::TransferOut(com))
         .await;
     unis::into(res, &lang)
+}
+
+#[derive(OpenApi)]
+#[openapi(paths(
+    init,
+    open,
+    set_limit,
+    change_limit,
+    set_trans_limit,
+    deposit,
+    withdraw,
+    transfer_in,
+    transfer_out
+))]
+pub struct TransactionApi;
+
+unis::route_builder!(
+    transaction,
+    KafkaSender<TransactionCommand>,
+    [
+        init,
+        open,
+        set_limit,
+        change_limit,
+        set_trans_limit,
+        deposit,
+        withdraw,
+        transfer_out,
+        transfer_in
+    ]
+);
+
+pub async fn routes() -> Router {
+    let ctx = unis::app::context().await;
+    let svc = Arc::new(ctx.setup::<_, KafkaSender<TransactionCommand>>().await);
+    Router::new()
+        .nest("/rkyv/v1", rkyv_routes())
+        .nest("/v1", json_routes())
+        .with_state(svc)
 }

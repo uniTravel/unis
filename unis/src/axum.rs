@@ -175,16 +175,29 @@ pub fn into(
 /// 为聚合类型构造路由
 #[macro_export]
 macro_rules! route_builder {
-    ($agg:ident, $format:ty, [$($com:ident), *]) => {{
-        let mut router = Router::new();
-        $(
-            router = router.route(
-                concat!("/", stringify!($agg), "/", stringify!($com)),
-                post($com::<$format>),
-            );
-        )*
-        router.layer(axum::middleware::from_fn(unis::key_middleware))
-    }};
+    ($agg:ident, $sender:ty, [$($com:ident), *]) => {
+        pub fn rkyv_routes() -> ::axum::Router<std::sync::Arc<$sender>> {
+            let mut router = ::axum::Router::new();
+            $(
+                router = router.route(
+                    concat!("/", stringify!($agg), "/", stringify!($com)),
+                    ::axum::routing::post($com::<::unis::RkyvFormat>),
+                );
+            )*
+            router.layer(::axum::middleware::from_fn(::unis::key_middleware))
+        }
+
+        pub fn json_routes() -> ::axum::Router<std::sync::Arc<$sender>> {
+            let mut router = ::axum::Router::new();
+            $(
+                router = router.route(
+                    concat!("/", stringify!($agg), "/", stringify!($com)),
+                    ::axum::routing::post($com::<::unis::JsonFormat>),
+                );
+            )*
+            router.layer(::axum::middleware::from_fn(::unis::key_middleware))
+        }
+    };
 }
 
 #[doc(hidden)]

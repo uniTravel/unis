@@ -5,6 +5,7 @@ use unis::{
     macros::{command, event},
 };
 
+/// * ⚠️ 交易限额不得大于账户限额。
 #[command]
 #[validate(schema(function = "validate::validate_set_limit"))]
 pub struct SetLimit {

@@ -6,6 +6,7 @@ use unis::{
     macros::{command, event},
 };
 
+/// * 每个月末打开新的交易期，待结转交易限额后方可交易。
 #[command]
 pub struct OpenPeriod {
     #[validate(

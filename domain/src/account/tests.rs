@@ -1,4 +1,6 @@
-use super::*;
+use crate::account::{
+    Account, AccountCommand, approve, create, limit, verify,
+};
 use proptest::prelude::*;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 use unis::domain::{Aggregate, Command};

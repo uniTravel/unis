@@ -1,9 +1,9 @@
-use super::*;
+use axum::{Extension, Router, extract::State, http::StatusCode};
 use domain::account::*;
-
-#[derive(OpenApi)]
-#[openapi(paths(create, verify, limit, approve))]
-pub struct AccountApi;
+use std::sync::Arc;
+use unis::{AxumCommand, UniKey, sender::Sender};
+use unis_kafka::sender::KafkaSender;
+use utoipa::OpenApi;
 
 /// 申请账户
 #[utoipa::path(post, path = "/create", request_body = CreateAccount)]
@@ -49,4 +49,23 @@ pub async fn limit<F>(
 ) -> Result<Vec<u8>, (StatusCode, String)> {
     let res = svc.apply(agg_id, com_id, AccountCommand::Limit(com)).await;
     unis::into(res, &lang)
+}
+
+#[derive(OpenApi)]
+#[openapi(paths(create, verify, limit, approve))]
+pub struct AccountApi;
+
+unis::route_builder!(
+    account,
+    KafkaSender<AccountCommand>,
+    [create, verify, approve, limit]
+);
+
+pub async fn routes() -> Router {
+    let ctx = unis::app::context().await;
+    let svc = Arc::new(ctx.setup::<_, KafkaSender<AccountCommand>>().await);
+    Router::new()
+        .nest("/rkyv/v1", rkyv_routes())
+        .nest("/v1", json_routes())
+        .with_state(svc)
 }

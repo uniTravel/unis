@@ -7,12 +7,7 @@ async fn app() -> &'static Router {
     static CELL: OnceCell<Router> = OnceCell::const_new();
     CELL.get_or_init(|| async {
         LazyLock::force(&SETUP);
-        let svc = Arc::new(
-            super::ctx()
-                .setup::<_, KafkaSender<TransactionCommand>>()
-                .await,
-        );
-        Router::new().merge(routes::transaction_routes().with_state(svc))
+        Router::new().merge(crate::transaction::routes().await)
     })
     .await
 }

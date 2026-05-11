@@ -1,13 +1,13 @@
 mod restore_test;
 mod stream_test;
 
-use super::{SUBSCRIBER_CONFIG, Topic, reader, stream::Writer};
+use super::{SUBSCRIBER_CONFIG, stream::Writer};
 use rdkafka::{
     ClientConfig,
-    admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
+    admin::{AdminClient, AdminOptions},
     client::DefaultClientContext,
 };
-use rstest::{fixture, rstest};
+use rstest::fixture;
 use std::sync::LazyLock;
 use tokio::{
     sync::OnceCell,
@@ -16,7 +16,7 @@ use tokio::{
 use tracing::{Level, info, warn};
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
-use unis::{UniResponse, app::Context, domain::Aggregate, subscriber::Stream};
+use unis::{app::Context, domain::Aggregate};
 use unis_utils::kube::{HelmRelease, KubeCluster};
 use uuid::Uuid;
 
