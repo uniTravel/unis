@@ -13,7 +13,7 @@ subscriber = ["unis/subscriber"]
 sender = ["unis/sender"]
 projector = []
 test-utils = ["unis/test-utils"]
-full = ["subscriber", "sender", "projector", "test-utils"]
+store-test = ["subscriber", "test-utils"]
 
 [dependencies]
 unis.workspace = true
@@ -34,8 +34,8 @@ thiserror.workspace = true
 
 [dev-dependencies]
 domain = { path = "../domain" }
-unis = { workspace = true, features = ["full"] }
-unis-kafka = { path = ".", features = ["full"] }
+unis = { workspace = true, features = ["store-test"] }
+unis-kafka = { path = ".", features = ["store-test"] }
 unis-utils.workspace = true
 
 rstest.workspace = true

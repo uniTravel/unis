@@ -31,11 +31,13 @@ pub mod macros {
 pub use crate::response::UniResponse;
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
+#[cfg(feature = "axum")]
 pub use axum::apply;
 #[cfg(feature = "axum")]
 pub use axum::{AxumCommand, into, key_middleware};
 #[doc(hidden)]
 #[cfg(any(test, feature = "test-utils"))]
+#[cfg(feature = "sender")]
 pub use i18n::validate;
 #[cfg(feature = "sender")]
 pub use request::{JsonFormat, RkyvFormat, UniKey};

@@ -10,6 +10,7 @@ pub struct UniKey {
     pub com_id: Uuid,
 }
 
+#[allow(dead_code)]
 fn parse_traceparent(tp: &str) -> Result<Uuid, String> {
     if tp.is_empty() {
         return Err("traceparent 为空".into());
@@ -55,6 +56,7 @@ fn parse_traceparent(tp: &str) -> Result<Uuid, String> {
     Uuid::parse_str(&uuid_str).map_err(|e| format!("无法解析为 UUID: {}", e))
 }
 
+#[allow(dead_code)]
 pub(crate) fn extract_key(headers: &HeaderMap) -> Option<UniKey> {
     if let Some(tp) = headers.get("traceparent").and_then(|v| v.to_str().ok()) {
         match parse_traceparent(tp) {

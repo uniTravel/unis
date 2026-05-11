@@ -13,7 +13,8 @@ subscriber = []
 sender = []
 axum = ["dep:axum", "dep:tower", "sender"]
 test-utils = []
-full = ["subscriber", "sender", "test-utils"]
+store-test = ["subscriber", "test-utils"]
+domain-test = ["sender", "test-utils"]
 
 [dependencies]
 unis-macros.workspace = true

@@ -25,5 +25,5 @@ proptest = { workspace = true, optional = true }
 proptest-state-machine = { workspace = true, optional = true }
 
 [dev-dependencies]
-unis = { workspace = true, features = ["full"] }
+unis = { workspace = true, features = ["domain-test"] }
 domain = { path = ".", features = ["test-utils"] }

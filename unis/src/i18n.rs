@@ -18,7 +18,8 @@ static CONFIG: LazyLock<config::Config> = LazyLock::new(|| crate::config::i18n_c
 static VALIDATION: LazyLock<HashMap<String, HashMap<String, String>>> =
     LazyLock::new(|| crate::config::load_named_setting(&CONFIG, "validation"));
 
-pub static RESPONSE: LazyLock<HashMap<String, HashMap<String, String>>> =
+#[allow(dead_code)]
+pub(crate) static RESPONSE: LazyLock<HashMap<String, HashMap<String, String>>> =
     LazyLock::new(|| crate::config::load_named_setting(&CONFIG, "response"));
 
 #[doc(hidden)]
