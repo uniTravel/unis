@@ -4,7 +4,7 @@ mod tests;
 mod account;
 mod transaction;
 
-use axum::Router;
+use axum::{Router, http::StatusCode, routing::get};
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
 use unis::app;
@@ -21,6 +21,7 @@ async fn main() {
         .init();
 
     let app = Router::new()
+        .route("/health", get(|| async { StatusCode::OK }))
         .merge(account::routes().await)
         .merge(transaction::routes().await)
         .merge(Scalar::with_url("/", ApiDoc::openapi()));

@@ -1,3 +1,4 @@
+use axum::{Router, http::StatusCode, routing::get};
 use domain::{account::AccountCommand, transaction::TransactionCommand};
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
@@ -12,9 +13,13 @@ async fn main() {
         .pretty()
         .init();
 
+    let app = Router::new().route("/health", get(|| async { StatusCode::OK }));
+
     let ctx = subscriber::context().await;
     ctx.launch::<_, KafkaSubscriber<AccountCommand>>().await;
     ctx.launch::<_, KafkaSubscriber<TransactionCommand>>().await;
-
-    ctx.all_done().await;
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
+    let _ = axum::serve(listener, app)
+        .with_graceful_shutdown(ctx.all_done())
+        .await;
 }
