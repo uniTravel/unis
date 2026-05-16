@@ -63,8 +63,9 @@ async fn main() {
         .merge(Scalar::with_url("/", ApiDoc::openapi()));
 
     let ctx = app::context().await;
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:7000").await.unwrap();
     let _ = axum::serve(listener, app)
         .with_graceful_shutdown(ctx.all_done())
         .await;
+    let _ = logger_provider.shutdown();
 }

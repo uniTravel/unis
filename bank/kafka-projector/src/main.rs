@@ -50,8 +50,9 @@ async fn main() {
         vec![domain::Account::topic(), domain::Transaction::topic()],
     )
     .await;
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3002").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:7002").await.unwrap();
     let _ = axum::serve(listener, app)
         .with_graceful_shutdown(ctx.all_done())
         .await;
+    let _ = logger_provider.shutdown();
 }

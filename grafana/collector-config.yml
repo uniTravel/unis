@@ -1,0 +1,34 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  debug:
+    verbosity: detailed
+
+  otlp_grpc/tempo:
+    endpoint: "tempo:4317"
+    sending_queue:
+      batch:
+    tls:
+      insecure: true
+
+  otlp_http/loki:
+    endpoint: "http://loki:3100/otlp"
+    sending_queue:
+      batch:
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      exporters: [otlp_http/loki, debug]
+    # traces:
+    #   receivers: [otlp]
+    #   exporters: [otlp_grpc/tempo, debug]

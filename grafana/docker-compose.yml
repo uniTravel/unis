@@ -1,0 +1,69 @@
+services:
+  loki:
+    image: grafana/loki
+    container_name: loki
+    command: ["-config.file=/etc/loki/config.yml"]
+    volumes:
+      - ./loki-config.yml:/etc/loki/config.yml
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    restart: unless-stopped
+    networks:
+      - observability
+
+  tempo:
+    image: grafana/tempo
+    container_name: tempo
+    command: ["-config.file=/etc/tempo/config.yml"]
+    volumes:
+      - ./tempo-config.yml:/etc/tempo/config.yml
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"
+    restart: unless-stopped
+    networks:
+      - observability
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    networks:
+      - observability
+    depends_on:
+      - loki
+      - tempo
+
+  otel-collector:
+    image: otel/opentelemetry-collector
+    container_name: otel-collector
+    volumes:
+      - ./collector-config.yml:/etc/otelcol/config.yaml
+    ports:
+      - 4317:4317
+      - 4318:4318
+      - 55679:55679
+    restart: unless-stopped
+    networks:
+      - observability
+    depends_on:
+      - loki
+      - tempo
+
+volumes:
+  loki_data:
+  tempo_data:
+  grafana_data:
+
+networks:
+  observability:
+    driver: bridge
