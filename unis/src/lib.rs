@@ -43,11 +43,17 @@ pub use i18n::validate;
 pub use request::{JsonFormat, RkyvFormat, UniKey};
 
 use crate::domain::CommandEnum;
+use opentelemetry::{
+    Context, SpanId, TraceFlags, TraceId,
+    trace::{SpanContext, TraceContextExt},
+};
 use rkyv::{
     Archive, Deserialize,
     de::Pool,
     rancor::{Error, Strategy},
 };
+use tracing::{Level, Span, error, span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
 /// 命令消息结构
@@ -58,8 +64,28 @@ where
 {
     /// 聚合 Id
     pub agg_id: Uuid,
-    /// 命令 Id
-    pub com_id: Uuid,
+    /// 聚合命令 Id
+    pub com_id: [u8; 16],
+    /// 追踪跨度 Id
+    pub span_id: [u8; 8],
     /// 命令数据
     pub com: C,
+}
+
+/// 创建子 Span
+pub fn create_span(name: &str, com_id: [u8; 16], span_id: [u8; 8]) -> Span {
+    let span_context = SpanContext::new(
+        TraceId::from_bytes(com_id),
+        SpanId::from_bytes(span_id),
+        TraceFlags::default(),
+        false,
+        Default::default(),
+    );
+
+    let cx = Context::new().with_remote_span_context(span_context);
+    let span = span!(Level::INFO, "{}", name);
+    if let Err(e) = span.set_parent(cx) {
+        error!(name, error = ?e, "设置 Span 上下文失败");
+    }
+    span
 }

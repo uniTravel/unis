@@ -13,7 +13,7 @@ use dashmap::DashMap;
 use rdkafka::{
     ClientConfig, Message,
     consumer::{Consumer, StreamConsumer},
-    message::{BorrowedMessage, Headers},
+    message::BorrowedMessage,
 };
 use rkyv::{
     Archive, Deserialize,
@@ -27,7 +27,7 @@ use std::{
 };
 use stream::Writer;
 use tokio::sync::{Notify, mpsc};
-use tracing::{Span, debug, error, info, instrument};
+use tracing::{error, info};
 use unis::{
     Com,
     aggregator::Aggregator,
@@ -117,11 +117,9 @@ where
     E: EventEnum<A = A>,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
-    #[instrument(name = "launch_subscriber", skip_all, fields(topic))]
     async fn launch(ctx: &'static unis::app::Context) -> Result<(), String> {
         let agg_type = A::type_name();
         let topic = A::topic();
-        Span::current().record("topic", topic);
         let cfg_name = agg_type.rsplit(".").next().ok_or("获取聚合名称失败")?;
         let settings = SUBSCRIBER_CONFIG
             .cc
@@ -142,7 +140,7 @@ where
         );
         cc.subscribe(&[topic_com])
             .map_err(|e| format!("订阅聚合命令流失败：{e}"))?;
-        info!("成功订阅 {topic_com} 聚合命令流");
+        info!(topic, "成功订阅聚合命令流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Com<C>>();
         let stream = Arc::new(Writer::new(&cfg).await);
@@ -158,7 +156,7 @@ where
             )
         })
         .await;
-        ctx.spawn_notify(move |ready, notify| Self::consume(topic, cc, tx, ready, notify))
+        ctx.spawn_notify(move |ready, notify| Self::consume(cc, tx, ready, notify))
             .await;
         Ok(())
     }
@@ -172,14 +170,13 @@ where
     E: EventEnum<A = A>,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
-    #[instrument(name = "receive_command", skip(cc, tx, ready, notify))]
     async fn consume(
-        topic: &'static str,
         cc: Arc<StreamConsumer>,
         tx: mpsc::UnboundedSender<Com<C>>,
         ready: Arc<Notify>,
         notify: Arc<Notify>,
     ) {
+        let topic = A::topic();
         let notified = notify.notified();
         tokio::pin!(notified);
         ready.notify_one();
@@ -187,46 +184,37 @@ where
             tokio::select! {
                 biased;
                 _ = &mut notified => {
-                    info!("收到关闭信号，开始优雅退出");
+                    info!(topic, "收到关闭信号，开始优雅退出");
                     break;
                 }
                 data = cc.recv() => match data {
                     Ok(msg) => {
                         match Self::process_message(&msg) {
                             Ok(com) => {
+                                let agg_id = com.agg_id;
                                 if let Err(e) = tx.send(com) {
-                                    error!("提交聚合命令失败：{e}");
+                                    error!(topic, %agg_id, error = ?e, "提交聚合命令失败");
                                 }
                             }
-                            Err(e) => error!("{e}"),
+                            Err(e) => error!(topic, error = ?e, "处理消息失败"),
                         }
                     }
-                    Err(e) => error!("消息错误：{e}"),
+                    Err(e) => error!(topic, error = ?e, "消息错误"),
                 }
             }
         }
     }
 
     fn process_message(msg: &BorrowedMessage<'_>) -> Result<Com<C>, UniError> {
-        let key = msg.key().ok_or("消息键不存在")?;
-        let agg_id = Uuid::from_slice(key).map_err(|e| UniError::MsgError(e.to_string()))?;
-        debug!("提取聚合Id：{agg_id}");
-
-        let id = msg
-            .headers()
-            .ok_or("消息头不存在")?
-            .iter()
-            .find(|h| h.key == "com_id")
-            .ok_or("键为'com_id'的消息头不存在")?
-            .value
-            .ok_or("键'com_id'对应的值为空")?;
-        let com_id = Uuid::from_slice(id).map_err(|e| UniError::MsgError(e.to_string()))?;
-        debug!("提取命令Id：{com_id}");
-
+        let agg_id = crate::get_agg_key(msg)?;
+        let headers = msg.headers().ok_or("消息头不存在")?;
+        let com_id = crate::get_com_id(headers)?;
+        let span_id = crate::get_span_id(headers)?;
         let com_data = msg.payload().ok_or("空消息体")?;
         Ok(Com {
             agg_id,
             com_id,
+            span_id,
             com: C::from_bytes(com_data)?,
         })
     }

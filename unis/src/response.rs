@@ -28,6 +28,8 @@ pub enum UniResponse {
     ReadError = 16,
     /// 写入命令流错误
     SendError = 17,
+    /// 命令结果反馈通道意外关闭
+    ResponseError = 18,
 }
 
 impl UniResponse {
@@ -47,6 +49,7 @@ impl UniResponse {
             15 => UniResponse::WriteError,
             16 => UniResponse::ReadError,
             17 => UniResponse::SendError,
+            18 => UniResponse::ResponseError,
             _ => panic!("转换命令处理结果枚举失败"),
         }
     }
@@ -72,6 +75,7 @@ impl std::fmt::Display for UniResponse {
             UniResponse::WriteError => write!(f, "写入事件流错误"),
             UniResponse::ReadError => write!(f, "读取事件流错误"),
             UniResponse::SendError => write!(f, "写入命令流错误"),
+            UniResponse::ResponseError => write!(f, "命令结果反馈通道意外关闭"),
         }
     }
 }

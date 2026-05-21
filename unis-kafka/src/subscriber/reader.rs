@@ -1,20 +1,19 @@
 use super::{SUBSCRIBER_CONFIG, pool::ConsumerPool};
 use ahash::{AHashMap, AHashSet};
-use rdkafka::{Message, Offset, TopicPartitionList, consumer::Consumer, message::Headers};
+use rdkafka::{Message, Offset, TopicPartitionList, consumer::Consumer};
 use rkyv::{
     Archive, Deserialize,
     de::Pool,
     rancor::{Error, Strategy},
 };
 use std::{sync::LazyLock, time::SystemTime};
-use tracing::{debug, error, instrument};
+use tracing::{debug, error};
 use unis::{UniResponse, domain::EventEnum, errors::UniError};
 use uuid::Uuid;
 
 static POOL: LazyLock<ConsumerPool> = LazyLock::new(|| ConsumerPool::new());
 
-#[instrument(name = "load_aggregate", level = "debug")]
-pub async fn load<E>(topic: &'static str, agg_id: Uuid) -> Result<Vec<(Uuid, E)>, UniError>
+pub async fn load<E>(topic: &'static str, agg_id: Uuid) -> Result<Vec<([u8; 16], E)>, UniError>
 where
     E: EventEnum,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
@@ -37,29 +36,26 @@ where
         return Err(UniError::ReadError("数据为空".to_owned()));
     }
 
-    debug!("开始读取事件流数据");
+    debug!(topic_agg, "开始读取事件流数据");
     let mut msgs = Vec::new();
     loop {
         match consumer.poll(SUBSCRIBER_CONFIG.timeout) {
             Some(Ok(msg)) => {
                 let payload = msg.payload().ok_or("消息体不存在")?;
-                let key = msg.key().ok_or("消息键不存在")?;
-                let com_id =
-                    Uuid::from_slice(key).map_err(|e| UniError::MsgError(e.to_string()))?;
-
+                let com_id = crate::get_com_key(&msg)?;
                 msgs.push((com_id, E::from_bytes(payload)?));
 
                 if msg.offset() + 1 == high {
-                    debug!("读到 {} 条事件流数据", msgs.len());
+                    debug!(topic_agg, "读到 {} 条事件流数据", msgs.len());
                     break;
                 }
             }
             Some(Err(e)) => {
-                debug!("事件流数据错误：{e}");
+                debug!(topic_agg, "事件流数据错误：{e}");
                 return Err(UniError::ReadError(e.to_string()));
             }
             None => {
-                debug!("结束事件流数据读取");
+                debug!(topic_agg, "结束事件流数据读取");
                 return Err(UniError::ReadError("聚合事件流未读到数据".to_string()));
             }
         }
@@ -68,13 +64,12 @@ where
     Ok(msgs)
 }
 
-#[instrument(name = "restore_command", level = "debug", skip(latest))]
 pub(crate) async fn restore(
     topic: &'static str,
     latest: i64,
-) -> Result<AHashMap<Uuid, AHashSet<Uuid>>, UniError> {
-    debug!("开始恢复最近 {latest} 分钟的命令操作记录");
-    let mut agg_coms: AHashMap<Uuid, AHashSet<Uuid>> = AHashMap::new();
+) -> Result<AHashMap<Uuid, AHashSet<[u8; 16]>>, UniError> {
+    debug!(topic, "开始恢复最近 {latest} 分钟的命令操作记录");
+    let mut agg_coms: AHashMap<Uuid, AHashSet<[u8; 16]>> = AHashMap::new();
     let mut tpl = TopicPartitionList::new();
     let mut watermarks = AHashMap::new();
 
@@ -104,32 +99,32 @@ pub(crate) async fn restore(
         {
             match tp.offset() {
                 Offset::Offset(o) => {
-                    debug!("分区 {pid}：起始消费偏移 {o}");
+                    debug!(topic, "分区 {pid}：起始消费偏移 {o}");
                     Offset::Offset(o)
                 }
                 Offset::End => {
-                    debug!("分区 {pid}: 时间戳在最晚消息之后，从最新位置消费");
+                    debug!(topic, "分区 {pid}: 时间戳在最晚消息之后，从最新位置消费");
                     Offset::End
                 }
                 Offset::Beginning => {
-                    debug!("分区 {pid}: 时间戳在最早消息之前，从开始消费");
+                    debug!(topic, "分区 {pid}: 时间戳在最早消息之前，从开始消费");
                     Offset::Beginning
                 }
                 Offset::Stored => {
-                    debug!("分区 {pid}: 使用存储的偏移");
+                    debug!(topic, "分区 {pid}: 使用存储的偏移");
                     Offset::Stored
                 }
                 Offset::Invalid => {
-                    debug!("分区 {pid}: 无效偏移，从开始消费");
+                    debug!(topic, "分区 {pid}: 无效偏移，从开始消费");
                     Offset::Beginning
                 }
                 Offset::OffsetTail(c) => {
-                    debug!("分区 {pid}: 回溯 {c} 条消息");
+                    debug!(topic, "分区 {pid}: 回溯 {c} 条消息");
                     Offset::OffsetTail(c)
                 }
             }
         } else {
-            debug!("分区 {pid}: 未取得偏移，从最新位置消费");
+            debug!(topic, "分区 {pid}: 未取得偏移，从最新位置消费");
             Offset::End
         };
 
@@ -138,7 +133,7 @@ pub(crate) async fn restore(
         let (low, high) = consumer
             .fetch_watermarks(topic, pid, SUBSCRIBER_CONFIG.timeout)
             .map_err(|e| UniError::ReadError(e.to_string()))?;
-        debug!("分区 {pid} 水位：{low} ~ {high}");
+        debug!(topic, "分区 {pid} 水位：{low} ~ {high}");
         if offset != Offset::End {
             watermarks.insert(pid, high);
         }
@@ -148,30 +143,16 @@ pub(crate) async fn restore(
         .assign(&tpl)
         .map_err(|e| UniError::ReadError(e.to_string()))?;
 
-    debug!("开始读取事件流数据");
+    debug!(topic, "开始读取事件流数据");
     while watermarks.len() > 0 {
         match consumer.poll(SUBSCRIBER_CONFIG.timeout) {
             Some(Ok(msg)) => {
-                let key = msg.key().ok_or("消息键不存在")?;
-                let agg_id =
-                    Uuid::from_slice(key).map_err(|e| UniError::MsgError(e.to_string()))?;
-
+                let agg_id = crate::get_agg_key(&msg)?;
                 let headers = msg.headers().ok_or("消息头不存在")?;
-                let id = headers
-                    .iter()
-                    .find(|h| h.key == "com_id")
-                    .ok_or("键为'com_id'的消息头不存在")?
-                    .value
-                    .ok_or("键'com_id'对应的值为空")?;
-                let com_id = Uuid::from_slice(id).map_err(|e| UniError::MsgError(e.to_string()))?;
-                let res_data = headers
-                    .iter()
-                    .find(|h| h.key == "response")
-                    .ok_or("键为'response'的消息头不存在")?
-                    .value
-                    .ok_or("键'response'对应的值为空")?;
+                let com_id = crate::get_com_id(headers)?;
+                let res = crate::get_response(headers)?;
 
-                if UniResponse::from_bytes(res_data) == UniResponse::Success {
+                if res == UniResponse::Success {
                     if let Some(coms) = agg_coms.get_mut(&agg_id) {
                         coms.insert(com_id);
                     } else {
@@ -182,14 +163,14 @@ pub(crate) async fn restore(
                 }
 
                 let pid = msg.partition();
-                debug!("分区 {pid}：偏移 {} 读到聚合 {agg_id}", msg.offset());
+                debug!(topic, %agg_id, "分区 {pid}：偏移 {} 读到聚合", msg.offset());
                 if msg.offset() + 1 == watermarks[&pid] {
                     watermarks.remove(&pid);
-                    debug!("消费到高水位，移除分区 {pid}");
+                    debug!(topic, "消费到高水位，移除分区 {pid}");
                 }
             }
             Some(Err(e)) => {
-                error!("事件流数据错误：{e}");
+                error!(topic, "事件流数据错误：{e}");
                 return Err(UniError::ReadError(e.to_string()));
             }
             None => {
@@ -197,6 +178,6 @@ pub(crate) async fn restore(
             }
         }
     }
-    debug!("结束事件流数据读取");
+    debug!(topic, "结束事件流数据读取");
     Ok(agg_coms)
 }

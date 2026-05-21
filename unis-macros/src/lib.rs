@@ -190,7 +190,7 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
             topic: &'static str,
             agg_id: ::uuid::Uuid,
             agg: &mut #agg_name,
-            coms: &mut ::ahash::AHashSet<::uuid::Uuid>,
+            coms: &mut ::ahash::AHashSet<[u8; 16]>,
             loader: impl ::unis::domain::Load<#enum_name>,
         ) -> Result<(), ::unis::errors::UniError>
         {

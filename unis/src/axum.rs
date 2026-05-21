@@ -1,5 +1,5 @@
 use crate::{
-    UniResponse,
+    UniKey, UniResponse,
     domain::Command,
     i18n,
     request::{self, JsonFormat, RkyvFormat},
@@ -11,6 +11,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use http::HeaderMap;
 use rkyv::{
     Archive, Deserialize,
     bytecheck::CheckBytes,
@@ -21,19 +22,25 @@ use rkyv::{
 };
 use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
-use tracing::info;
 use validator::Validate;
 
 /// 处理键值的中间件
-pub async fn key_middleware(mut req: Request, next: Next) -> Response {
-    let lang = extract_language(&req);
+pub async fn key_middleware(headers: HeaderMap, mut req: Request, next: Next) -> Response {
+    let lang = extract_language(&headers);
     match request::extract_key(req.headers()) {
-        Some(key) => {
-            req.extensions_mut().insert(key.clone());
+        Some(UniKey {
+            agg_id,
+            com_id,
+            span_id,
+        }) => {
+            req.extensions_mut().insert(UniKey {
+                agg_id,
+                com_id,
+                span_id,
+            });
             let mut res = next.run(req).await;
             let headers = res.headers_mut();
-            headers.insert("x-agg-id", key.agg_id.to_string().parse().unwrap());
-            headers.insert("x-com-id", key.com_id.to_string().parse().unwrap());
+            headers.insert("x-agg-id", agg_id.to_string().parse().unwrap());
             res
         }
         None => response(UniResponse::KeyError, &lang).into_response(),
@@ -55,7 +62,7 @@ where
     type Rejection = Response;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let lang = extract_language(&req);
+        let lang = extract_language(&req.headers());
         let bytes = Bytes::from_request(req, state)
             .await
             .map_err(|e| e.into_response())?;
@@ -94,7 +101,7 @@ where
     type Rejection = Response;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let lang = extract_language(&req);
+        let lang = extract_language(&req.headers());
         let bytes = Bytes::from_request(req, state)
             .await
             .map_err(|e| e.into_response())?;
@@ -114,8 +121,8 @@ where
     }
 }
 
-fn extract_language(req: &Request) -> String {
-    req.headers()
+fn extract_language(headers: &HeaderMap) -> String {
+    headers
         .get(ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
         .and_then(|ls| ls.split(',').next())
@@ -138,6 +145,7 @@ fn response(res: UniResponse, lang: &str) -> (StatusCode, String) {
         UniResponse::WriteError => (StatusCode::INTERNAL_SERVER_ERROR, "write"),
         UniResponse::ReadError => (StatusCode::INTERNAL_SERVER_ERROR, "read"),
         UniResponse::SendError => (StatusCode::INTERNAL_SERVER_ERROR, "send"),
+        UniResponse::ResponseError => (StatusCode::INTERNAL_SERVER_ERROR, "response"),
         UniResponse::Success => (StatusCode::OK, "_"),
         UniResponse::Duplicate => (StatusCode::ACCEPTED, "accepted"),
     };
@@ -157,18 +165,9 @@ pub fn into(
     lang: &str,
 ) -> Result<Vec<u8>, (StatusCode, String)> {
     match res {
-        Ok(res) => {
-            info!("聚合命令收到成功反馈");
-            Ok(res)
-        }
-        Err(UniResponse::Duplicate) => {
-            info!("聚合命令已执行成功");
-            Err(response(UniResponse::Duplicate, lang))
-        }
-        Err(res) => {
-            info!("聚合命令收到失败反馈：{res}");
-            Err(response(res, lang))
-        }
+        Ok(res) => Ok(res),
+        Err(UniResponse::Duplicate) => Err(response(UniResponse::Duplicate, lang)),
+        Err(res) => Err(response(res, lang)),
     }
 }
 

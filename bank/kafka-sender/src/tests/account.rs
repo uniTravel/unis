@@ -1,5 +1,5 @@
 use super::*;
-use domain::account::*;
+use domain::{Account, account::*};
 
 #[fixture]
 async fn app() -> &'static Router {

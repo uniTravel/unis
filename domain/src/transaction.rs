@@ -40,21 +40,13 @@ pub use transfer_out::transfer_out;
 #[cfg(feature = "test-utils")]
 pub use withdraw::withdraw;
 
+use crate::Transaction;
 use unis::{
     domain::{Command, CommandEnum, Event, Load},
     errors::UniError,
-    macros::{aggregate, command_enum, event_enum},
+    macros::{command_enum, event_enum},
 };
 use uuid::Uuid;
-
-#[aggregate]
-pub struct Transaction {
-    pub account_code: String,
-    pub balance: i64,
-    pub period: String,
-    pub limit: i64,
-    pub trans_limit: i64,
-}
 
 #[event_enum(Transaction)]
 pub enum TransactionEvent {
@@ -91,7 +83,7 @@ impl CommandEnum for TransactionCommand {
         topic: &'static str,
         agg_id: Uuid,
         mut agg: Self::A,
-        coms: &mut ahash::AHashSet<Uuid>,
+        coms: &mut ahash::AHashSet<[u8; 16]>,
         loader: impl Load<Self::E>,
     ) -> Result<(Self::A, Self::E), UniError> {
         match self {

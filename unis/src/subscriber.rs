@@ -16,7 +16,7 @@ use uuid::Uuid;
 /// 恢复命令操作记录特征
 pub trait Restore: Send + 'static {
     /// 返回类型
-    type Fut: Future<Output = Result<AHashMap<Uuid, AHashSet<Uuid>>, UniError>> + Send;
+    type Fut: Future<Output = Result<AHashMap<Uuid, AHashSet<[u8; 16]>>, UniError>> + Send;
 
     /// 从存储恢复命令操作记录
     fn restore(&self, topic: &'static str, latest: i64) -> Self::Fut;
@@ -29,7 +29,8 @@ pub trait Stream: Send + Sync + 'static {
         &self,
         topic: &'static str,
         agg_id: Uuid,
-        com_id: Uuid,
+        com_id: &[u8; 16],
+        span_id: &[u8; 8],
         revision: u64,
         evt_data: &[u8],
     ) -> impl Future<Output = Result<(), UniError>> + Send;
@@ -38,7 +39,8 @@ pub trait Stream: Send + Sync + 'static {
         &self,
         topic: &'static str,
         agg_id: Uuid,
-        com_id: Uuid,
+        com_id: &[u8; 16],
+        span_id: &[u8; 8],
         res: &[u8; 1],
         evt_data: &[u8],
     ) -> impl Future<Output = Result<(), UniError>> + Send;

@@ -10,6 +10,7 @@
 "write" = "写入事件流错误"
 "read" = "读取事件流错误"
 "send" = "写入命令流错误"
+"response" = "命令结果反馈通道意外关闭"
 "accepted" = "聚合命令已执行成功"
 
 [response.en]
@@ -24,6 +25,7 @@
 "write" = "write error"
 "read" = "read error"
 "send" = "send error"
+"response" = "response channel closed"
 "accepted" = "already accepted"
 
 [validation.zh]

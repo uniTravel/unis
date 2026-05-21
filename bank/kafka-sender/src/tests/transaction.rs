@@ -1,6 +1,6 @@
 use super::*;
 use chrono::Local;
-use domain::transaction::*;
+use domain::{Transaction, transaction::*};
 
 #[fixture]
 async fn app() -> &'static Router {

@@ -9,7 +9,7 @@ use tokio::{
     sync::{Notify, OnceCell, mpsc},
     time::{Duration, Instant},
 };
-use tracing::{debug, debug_span, error, info};
+use tracing::{debug, error, info};
 
 static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
     ClientConfig::new()
@@ -86,11 +86,8 @@ async fn topic_creator(
             data = topic_rx.recv() => {
                 match data {
                     Some(TopicTask { topic, agg_id }) => {
-                        let span = debug_span!("create_topic", topic, %agg_id);
-                        span.in_scope(|| {
-                            debug!("收到聚合主题创建任务");
-                            batch.push(super::topic_agg(topic, agg_id));
-                        });
+                        debug!(topic, %agg_id, "收到聚合主题创建任务");
+                        batch.push(super::topic_agg(topic, agg_id));
 
                         if count == threshold {
                             debug!("触及提交计数阈值，提交聚合主题批量创建");

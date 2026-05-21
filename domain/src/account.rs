@@ -20,23 +20,13 @@ pub use limit::limit;
 #[cfg(feature = "test-utils")]
 pub use verify::verify;
 
+use crate::Account;
 use unis::{
     domain::{Command, CommandEnum, Event, Load},
     errors::UniError,
-    macros::{aggregate, command_enum, event_enum},
+    macros::{command_enum, event_enum},
 };
 use uuid::Uuid;
-
-#[aggregate]
-pub struct Account {
-    pub code: String,
-    pub owner: String,
-    pub limit: i64,
-    pub verified_by: String,
-    pub verified: bool,
-    pub approved_by: String,
-    pub approved: bool,
-}
 
 #[event_enum(Account)]
 pub enum AccountEvent {
@@ -63,7 +53,7 @@ impl CommandEnum for AccountCommand {
         topic: &'static str,
         agg_id: Uuid,
         mut agg: Self::A,
-        coms: &mut ahash::AHashSet<Uuid>,
+        coms: &mut ahash::AHashSet<[u8; 16]>,
         loader: impl Load<Self::E>,
     ) -> Result<(Self::A, Self::E), UniError> {
         match self {

@@ -7,7 +7,7 @@ use rdkafka::{
     ClientConfig, Message, TopicPartitionList,
     consumer::{Consumer, StreamConsumer},
     error::KafkaError,
-    message::{BorrowedMessage, Headers},
+    message::BorrowedMessage,
     producer::{FutureProducer, FutureRecord, Producer, future_producer::Delivery},
 };
 use std::{
@@ -20,10 +20,11 @@ use std::{
 use thiserror::Error;
 use tokio::{
     sync::Notify,
+    task::JoinSet,
     time::{Duration, Instant, sleep},
 };
-use tracing::{debug, error, info};
-use unis::{UniResponse, domain::Config, errors::UniError};
+use tracing::{Instrument, debug, error, info, instrument};
+use unis::{UniResponse, create_span, domain::Config, errors::UniError};
 use uuid::Uuid;
 
 pub use unis::app::context;
@@ -66,6 +67,8 @@ enum ProjectError {
     MetadataError,
     #[error("{0}")]
     KafkaError(#[from] rdkafka::error::KafkaError),
+    #[error("{0}")]
+    JoinError(#[from] tokio::task::JoinError),
 }
 
 fn create_producer() -> Result<FutureProducer, KafkaError> {
@@ -110,12 +113,16 @@ pub async fn launch(ctx: &'static unis::app::Context, topics: Vec<&'static str>)
                 match process(&topics, &ap, &tc, Arc::clone(&ready), Arc::clone(&notify)).await {
                     Ok(()) => break,
                     Err(ProjectError::UniError(e)) => {
-                        error!("投影处理错误：{:?}", e);
+                        error!(error = ?e, "投影处理错误");
                         break;
                     }
                     Err(ProjectError::MetadataError) => error!("获取消费组元数据失败"),
                     Err(ProjectError::KafkaError(e)) => {
-                        error!("投影处理错误：{:?}", e);
+                        error!(error = ?e, "投影处理错误");
+                        ap = create_producer().expect("重建投影生产者失败");
+                    }
+                    Err(ProjectError::JoinError(e)) => {
+                        error!(error = ?e, "投影处理错误");
                         ap = create_producer().expect("重建投影生产者失败");
                     }
                 }
@@ -170,7 +177,7 @@ async fn process(
             }
             data = tc.recv() => match data {
                 Ok(msg) => match process_message(&msg) {
-                    Ok((agg_id, com_id, payload, res)) if res == UniResponse::Success => {
+                    Ok((agg_id, com_id, span_id, payload, res)) if res == UniResponse::Success => {
                         let agg_type = msg.topic().to_string();
                         let mut topic = String::with_capacity(agg_type.len() + 37);
                         topic.push_str(&agg_type);
@@ -180,14 +187,14 @@ async fn process(
                         let offset = msg.offset();
 
                         match agg_msgs.get_mut(&topic) {
-                            Some(msgs) => msgs.push((com_id, payload)),
+                            Some(msgs) => msgs.push((com_id, span_id, payload)),
                             None => {
                                 if agg_msgs.len() == PROJECTOR_CONFIG.partitions {
                                     process_batch(ap, tc, &mut agg_msgs, &mut offsets, "触及分区数阈值").await?;
                                     last_flush = Instant::now();
                                     count = 0;
                                 }
-                                agg_msgs.insert(topic, vec![(com_id, payload)]);
+                                agg_msgs.insert(topic, vec![(com_id, span_id, payload)]);
                             }
                         }
 
@@ -215,54 +222,67 @@ async fn process(
     }
 }
 
+#[instrument(name = "batch_project", skip_all)]
 async fn process_batch(
     ap: &FutureProducer,
     tc: &StreamConsumer,
-    agg_msgs: &mut AHashMap<String, Vec<(Uuid, Vec<u8>)>>,
+    agg_msgs: &mut AHashMap<String, Vec<([u8; 16], [u8; 8], Vec<u8>)>>,
     offsets: &mut AHashMap<(String, i32), i64>,
     reason: &str,
 ) -> Result<(), ProjectError> {
-    info!("{reason}，提交批量投影");
+    info!("提交批量投影：{reason}");
+    let tx_span = tracing::Span::current();
     let cgm = tc.group_metadata().ok_or(ProjectError::MetadataError)?;
-    let msg_vec: Vec<(String, Vec<(Uuid, Vec<u8>)>)> = agg_msgs.drain().collect();
+    let msg_vec: Vec<(String, Vec<([u8; 16], [u8; 8], Vec<u8>)>)> = agg_msgs.drain().collect();
     let offset_vec: Vec<((String, i32), i64)> = offsets.drain().collect();
-    let mut delivery_futures = Vec::with_capacity(msg_vec.len());
+    let mut join_set = JoinSet::new();
 
     ap.begin_transaction()?;
 
     for (topic, msgs) in msg_vec {
-        for (com_id, payload) in msgs {
-            let record = FutureRecord::to(&topic)
-                .payload(&payload)
-                .key(com_id.as_bytes());
+        for (com_id, span_id, payload) in msgs {
+            let sp = create_span("project_command", com_id, span_id);
+            sp.follows_from(&tx_span);
+            let record = FutureRecord::to(&topic).payload(&payload).key(&com_id);
             match ap.send_result(record) {
-                Ok(delevery_future) => {
-                    delivery_futures.push(delevery_future);
+                Ok(future) => {
+                    join_set.spawn(async { future.instrument(sp).await });
                 }
                 Err((e, _)) => {
                     ap.abort_transaction(Duration::from_secs(30))?;
+                    join_set.abort_all();
                     return Err(e.into());
                 }
             }
         }
     }
 
-    for fut in delivery_futures {
-        match fut.await {
-            Ok(Ok(Delivery {
+    while let Some(result) = join_set.join_next().await {
+        match result {
+            Ok(Ok(Ok(Delivery {
                 partition,
                 offset,
                 timestamp: _,
-            })) => {
-                debug!("转存的事件写到分区 {partition} 偏移 {offset}")
+            }))) => {
+                info!("转存的事件写到分区 {partition} 偏移 {offset}");
             }
-            Ok(Err((e, _))) => {
+            Ok(Ok(Err((e, _)))) => {
+                error!(error = ?e, "消息投递失败，中止事务");
                 ap.abort_transaction(Duration::from_secs(30))?;
+                join_set.abort_all();
                 return Err(e.into());
             }
-            Err(_) => {
+            Ok(Err(e)) => {
+                error!(error = ?e, "任务取消，中止事务");
                 ap.abort_transaction(Duration::from_secs(30))?;
+                join_set.abort_all();
                 return Err(KafkaError::Canceled.into());
+            }
+            Err(e) => {
+                error!(error = ?e, "任务执行失败，中止事务");
+                ap.abort_transaction(Duration::from_secs(30))?;
+                join_set.abort_all();
+                return Err(e.into());
             }
         }
     }
@@ -288,31 +308,12 @@ async fn process_batch(
 
 fn process_message(
     msg: &BorrowedMessage<'_>,
-) -> Result<(Uuid, Uuid, Vec<u8>, UniResponse), UniError> {
-    let key = msg.key().ok_or("消息键不存在")?;
-    let agg_id = Uuid::from_slice(key).map_err(|e| UniError::MsgError(e.to_string()))?;
-    debug!("提取聚合Id：{agg_id}");
-
-    let payload = msg.payload().ok_or("消息体不存在")?.to_vec();
+) -> Result<(Uuid, [u8; 16], [u8; 8], Vec<u8>, UniResponse), UniError> {
+    let agg_id = crate::get_agg_key(msg)?;
     let headers = msg.headers().ok_or("消息头不存在")?;
-
-    let id = headers
-        .iter()
-        .find(|h| h.key == "com_id")
-        .ok_or("键为'com_id'的消息头不存在")?
-        .value
-        .ok_or("键'com_id'对应的值为空")?;
-    let com_id = Uuid::from_slice(id).map_err(|e| UniError::MsgError(e.to_string()))?;
-    debug!("提取命令Id：{com_id}");
-
-    let res_data = headers
-        .iter()
-        .find(|h| h.key == "response")
-        .ok_or("键为'response'的消息头不存在")?
-        .value
-        .ok_or("键'response'对应的值为空")?;
-    let res = UniResponse::from_bytes(res_data);
-    debug!("提取命令处理结果：{:?}", res);
-
-    Ok((agg_id, com_id, payload, res))
+    let com_id = crate::get_com_id(headers)?;
+    let span_id = crate::get_span_id(headers)?;
+    let res = crate::get_response(headers)?;
+    let payload = msg.payload().ok_or("消息体不存在")?.to_vec();
+    Ok((agg_id, com_id, span_id, payload, res))
 }

@@ -141,7 +141,7 @@ where
         topic: &'static str,
         agg_id: Uuid,
         agg: Self::A,
-        coms: &mut AHashSet<Uuid>,
+        coms: &mut AHashSet<[u8; 16]>,
         loader: impl Load<Self::E>,
     ) -> impl Future<Output = Result<(Self::A, Self::E), UniError>> + Send;
 
@@ -172,7 +172,7 @@ where
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
     /// 返回类型
-    type Fut: Future<Output = Result<Vec<(Uuid, E)>, UniError>> + Send;
+    type Fut: Future<Output = Result<Vec<([u8; 16], E)>, UniError>> + Send;
 
     /// 从存储加载事件流
     fn load(&self, topic: &'static str, agg_id: Uuid) -> Self::Fut;

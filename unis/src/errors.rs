@@ -45,7 +45,15 @@ impl UniError {
 }
 
 impl From<&str> for UniError {
-    fn from(s: &str) -> Self {
-        UniError::MsgError(s.to_owned())
+    #[inline(always)]
+    fn from(value: &str) -> Self {
+        UniError::MsgError(value.to_owned())
+    }
+}
+
+impl From<String> for UniError {
+    #[inline(always)]
+    fn from(value: String) -> Self {
+        UniError::MsgError(value)
     }
 }

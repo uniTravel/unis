@@ -83,19 +83,19 @@ impl Context {
         S: crate::subscriber::Subscriber<C::A, C, C::E>,
     {
         let mut types = self.subscriber_types.lock().await;
+        let type_name = std::any::type_name::<C>();
         if types.insert(TypeId::of::<C>()) {
             if let Err(e) = S::launch(self).await {
-                error!(e);
+                error!(type_name, e);
                 self.shutdown().await;
                 self.all_done().await;
                 panic!("异常退出订阅者初始设置")
             }
         } else {
-            let type_name = std::any::type_name::<C>();
-            error!("重复启动 {type_name} 的订阅者");
+            error!(type_name, "重复启动命令订阅者");
             self.shutdown().await;
             self.all_done().await;
-            panic!("特定聚合类型的订阅者只能启动一次");
+            panic!("特定聚合类型的命令订阅者只能启动一次");
         }
     }
 
@@ -109,22 +109,25 @@ impl Context {
         S: crate::sender::Sender<C::A, C, C::E>,
     {
         let mut types = self.sender_types.lock().await;
+        let type_name = std::any::type_name::<C>();
         if types.insert(TypeId::of::<C>()) {
             match S::new(self).await {
                 Ok(sender) => sender,
                 Err(e) => {
-                    error!(e);
+                    error!(type_name, e);
                     self.shutdown().await;
                     self.all_done().await;
                     panic!("异常退出发送者初始设置")
                 }
             }
         } else {
+            use std::any::type_name;
+
             let type_name = std::any::type_name::<C>();
-            error!("重复初始设置 {type_name} 的发送者");
+            error!(type_name, "重复初始设置命令发送者");
             self.shutdown().await;
             self.all_done().await;
-            panic!("特定聚合类型的发送者只能初始设置一次");
+            panic!("特定聚合类型的命令发送者只能初始设置一次");
         }
     }
 
@@ -171,7 +174,7 @@ impl Context {
         let mut tasks = self.tasks.lock().await;
         while let Some(result) = tasks.join_next().await {
             if let Err(e) = result {
-                error!("后台任务发生错误：{e}");
+                error!(error = ?e, "后台任务发生错误");
             }
         }
         info!("优雅退出所有后台任务");

@@ -28,6 +28,8 @@ rkyv.workspace = true
 config.workspace = true
 validator.workspace = true
 http.workspace = true
+opentelemetry.workspace = true
+tracing-opentelemetry.workspace = true
 
 axum = { workspace = true, optional = true }
 tower = { version = "0.5", features = ["util"], optional = true }

@@ -6,7 +6,7 @@ use rdkafka::{
 };
 use std::sync::{Arc, LazyLock};
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, info};
 use unis::{config::SubscribeConfig, errors::UniError, subscriber};
 use uuid::Uuid;
 
@@ -44,17 +44,17 @@ impl Writer {
 }
 
 impl subscriber::Stream for Writer {
-    #[instrument(name = "stream_write", level = "debug", skip(self, revision, evt_data))]
     async fn write(
         &self,
         topic: &'static str,
         agg_id: Uuid,
-        com_id: Uuid,
+        com_id: &[u8; 16],
+        span_id: &[u8; 8],
         revision: u64,
         evt_data: &[u8],
     ) -> Result<(), UniError> {
         if revision == 0 {
-            debug!("创建聚合主题");
+            info!(topic, %agg_id, "创建聚合主题");
             if let Err(e) = self.topic_tx.send(TopicTask { topic, agg_id }) {
                 error!(topic, %agg_id, "发送聚合主题失败：{e}");
             }
@@ -64,10 +64,14 @@ impl subscriber::Stream for Writer {
             .payload(evt_data)
             .key(agg_id.as_bytes())
             .headers(
-                OwnedHeaders::new_with_capacity(2)
+                OwnedHeaders::new_with_capacity(3)
                     .insert(Header {
                         key: "com_id",
-                        value: Some(com_id.as_bytes()),
+                        value: Some(com_id),
+                    })
+                    .insert(Header {
+                        key: "span_id",
+                        value: Some(span_id),
                     })
                     .insert(Header {
                         key: "response",
@@ -85,17 +89,17 @@ impl subscriber::Stream for Writer {
                      offset,
                      timestamp: _,
                  }| {
-                    debug!("生成的事件写到分区 {partition} 偏移 {offset}")
+                    debug!(topic, %agg_id, "生成的事件写到分区 {partition} 偏移 {offset}")
                 },
             )
     }
 
-    #[instrument(name = "stream_respond", level = "debug", skip(self, res, evt_data))]
     async fn respond(
         &self,
         topic: &'static str,
         agg_id: Uuid,
-        com_id: Uuid,
+        com_id: &[u8; 16],
+        span_id: &[u8; 8],
         res: &[u8; 1],
         evt_data: &[u8],
     ) -> Result<(), UniError> {
@@ -103,10 +107,14 @@ impl subscriber::Stream for Writer {
             .payload(evt_data)
             .key(agg_id.as_bytes())
             .headers(
-                OwnedHeaders::new_with_capacity(2)
+                OwnedHeaders::new_with_capacity(3)
                     .insert(Header {
                         key: "com_id",
-                        value: Some(com_id.as_bytes()),
+                        value: Some(com_id),
+                    })
+                    .insert(Header {
+                        key: "span_id",
+                        value: Some(span_id),
                     })
                     .insert(Header {
                         key: "response",
@@ -124,7 +132,7 @@ impl subscriber::Stream for Writer {
                      offset,
                      timestamp: _,
                  }| {
-                    debug!("生成的反馈事件写到分区 {partition} 偏移 {offset}")
+                    debug!(topic, %agg_id, "生成的反馈事件写到分区 {partition} 偏移 {offset}")
                 },
             )
     }

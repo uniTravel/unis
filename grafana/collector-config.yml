@@ -29,6 +29,6 @@ service:
     logs:
       receivers: [otlp]
       exporters: [otlp_http/loki, debug]
-    # traces:
-    #   receivers: [otlp]
-    #   exporters: [otlp_grpc/tempo, debug]
+    traces:
+      receivers: [otlp]
+      exporters: [otlp_grpc/tempo, debug]

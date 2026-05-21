@@ -5,6 +5,7 @@
 use crate::{
     Com, UniResponse,
     config::SubscribeConfig,
+    create_span,
     domain::{Aggregate, CommandEnum, EventEnum, Load},
     errors::UniError,
     subscriber::{Restore, Stream},
@@ -24,7 +25,7 @@ use tokio::{
     },
     time::{self, Duration, Instant, MissedTickBehavior},
 };
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{Instrument, debug, error, info, warn};
 use uuid::Uuid;
 
 const EMPTY_BYTES: &[u8] = &[];
@@ -32,7 +33,7 @@ const EMPTY_BYTES: &[u8] = &[];
 impl<F, Fut> Restore for F
 where
     F: Fn(&'static str, i64) -> Fut + Send + 'static,
-    Fut: Future<Output = Result<AHashMap<Uuid, AHashSet<Uuid>>, UniError>> + Send,
+    Fut: Future<Output = Result<AHashMap<Uuid, AHashSet<[u8; 16]>>, UniError>> + Send,
 {
     type Fut = Fut;
 
@@ -47,7 +48,7 @@ where
     E: EventEnum,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
     F: Fn(&'static str, Uuid) -> Fut + Send + Copy + 'static,
-    Fut: Future<Output = Result<Vec<(Uuid, E)>, UniError>> + Send,
+    Fut: Future<Output = Result<Vec<([u8; 16], E)>, UniError>> + Send,
 {
     type Fut = Fut;
 
@@ -77,14 +78,10 @@ where
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
     /// 启动聚合器
-    #[instrument(
-        name = "launch_aggregator",
-        skip(cfg, loader, stream, restore, rx, ready)
-    )]
     pub async fn launch(
         topic: &'static str,
         cfg: SubscribeConfig,
-        loader: impl Load<E>,
+        loader: impl Load<E> + Sync,
         stream: Arc<impl Stream>,
         restore: impl Restore,
         mut rx: UnboundedReceiver<Com<C>>,
@@ -115,8 +112,8 @@ where
                 panic!("恢复聚合命令操作记录失败：{e}");
             }
         }
-        info!("成功恢复最近 {latest} 分钟的聚合命令操作记录");
-        info!("聚合器准备就绪");
+        info!(topic, "成功恢复最近 {latest} 分钟的聚合命令操作记录");
+        info!(topic, "聚合器准备就绪");
 
         ready.notify_one();
         loop {
@@ -140,30 +137,34 @@ where
                 }
                 data = rx.recv() => match data {
                     Some(com) => {
-                        if let Some((agg_tx, instant)) = caches.get_mut(&com.agg_id) {
-                            *instant = Instant::now();
-                            if let Err(e) = agg_tx.send(com) {
-                                error!("提交聚合命令失败：{e}");
+                        create_span("dispatch_command", com.com_id, com.span_id).in_scope(||{
+                            let agg_id = com.agg_id;
+                            info!(topic, %agg_id, "开始分派命令");
+                            if let Some((agg_tx, instant)) = caches.get_mut(&agg_id) {
+                                *instant = Instant::now();
+                                if let Err(e) = agg_tx.send(com) {
+                                    error!(topic, %agg_id, error = ?e, "分派命令失败");
+                                }
+                            } else {
+                                info!(topic, %agg_id, "创建命令处理器");
+                                let (agg_tx, agg_rx) = mpsc::unbounded_channel::<Com<C>>();
+                                tokio::spawn(Self::process(
+                                    topic,
+                                    agg_id,
+                                    loader,
+                                    Arc::clone(&stream),
+                                    AHashSet::new(),
+                                    agg_rx,
+                                ));
+                                if let Err(e) = agg_tx.send(com) {
+                                    error!(topic, %agg_id, error = ?e, "分派命令失败");
+                                }
+                                caches.insert(agg_id, (agg_tx, Instant::now()));
                             }
-                        } else {
-                            let agg_id = com.agg_id.clone();
-                            let (agg_tx, agg_rx) = mpsc::unbounded_channel::<Com<C>>();
-                            tokio::spawn(Self::process(
-                                topic,
-                                agg_id,
-                                loader,
-                                Arc::clone(&stream),
-                                AHashSet::new(),
-                                agg_rx,
-                            ));
-                            if let Err(e) = agg_tx.send(com) {
-                                error!("提交聚合命令失败：{e}");
-                            }
-                            caches.insert(agg_id, (agg_tx, Instant::now()));
-                        }
+                        });
                     }
                     None => {
-                        info!("发送端已关闭，聚合器稍后将停止工作");
+                        info!(topic, "发送端已关闭，聚合器稍后将停止工作");
                         break;
                     }
                 }
@@ -171,13 +172,12 @@ where
         }
     }
 
-    #[instrument(name = "process_aggregate", skip(loader, stream, coms, agg_rx))]
     async fn process(
         topic: &'static str,
         agg_id: Uuid,
         loader: impl Load<E>,
         stream: Arc<impl Stream>,
-        mut coms: AHashSet<Uuid>,
+        mut coms: AHashSet<[u8; 16]>,
         mut agg_rx: UnboundedReceiver<Com<C>>,
     ) {
         let mut agg = A::new(agg_id);
@@ -188,124 +188,141 @@ where
                 Some(Com {
                     agg_id,
                     com_id,
+                    span_id,
                     com,
                 }) => {
-                    if coms.contains(&com_id) {
-                        warn!("{com_id}: 重复提交聚合命令");
-                        match stream
-                            .respond(
-                                topic,
-                                agg_id,
-                                com_id,
-                                &UniResponse::Duplicate.to_bytes(),
-                                EMPTY_BYTES,
-                            )
+                    async {
+                        if coms.contains(&com_id) {
+                            warn!(topic, %agg_id, "重复提交命令");
+                            match stream
+                                .respond(
+                                    topic,
+                                    agg_id,
+                                    &com_id,
+                                    &span_id,
+                                    &UniResponse::Duplicate.to_bytes(),
+                                    EMPTY_BYTES,
+                                )
+                                .await
+                            {
+                                Ok(()) => info!(topic, %agg_id, "重复提交命令反馈成功"),
+                                Err(e) => error!(topic, %agg_id, error = ?e, "重复提交命令反馈失败"),
+                            }
+                            return;
+                        }
+                        match com
+                            .apply(topic, agg_id, agg.clone(), &mut coms, loader)
                             .await
                         {
-                            Ok(()) => info!("{com_id}: 重复提交聚合命令反馈成功"),
-                            Err(e) => error!("{com_id}: 重复提交聚合命令反馈失败：{e}"),
-                        }
-                        continue;
-                    }
-                    match com
-                        .apply(topic, agg_id, agg.clone(), &mut coms, loader)
-                        .await
-                    {
-                        Ok((na, evt)) => {
-                            if coms.contains(&com_id) {
-                                warn!("{com_id}: 重复提交聚合命令");
-                                match stream
-                                    .respond(
-                                        topic,
-                                        agg_id,
-                                        com_id,
-                                        &UniResponse::Duplicate.to_bytes(),
-                                        EMPTY_BYTES,
-                                    )
-                                    .await
-                                {
-                                    Ok(()) => info!("{com_id}: 重复提交聚合命令反馈成功"),
-                                    Err(e) => error!("{com_id}: 重复提交聚合命令反馈失败：{e}"),
-                                }
-                                continue;
-                            }
-                            match evt.to_bytes(&mut arena) {
-                                Ok(bytes) => match stream
-                                    .write(topic, agg_id, com_id, na.revision(), bytes.as_slice())
-                                    .await
-                                {
-                                    Ok(()) => {
-                                        info!("{com_id}: 聚合类型事件写入成功");
-                                        agg = na;
-                                        coms.insert(com_id);
-                                        debug!("聚合版本：{}", agg.revision());
+                            Ok((na, evt)) => {
+                                if coms.contains(&com_id) {
+                                    warn!(topic, %agg_id, "重复提交命令");
+                                    match stream
+                                        .respond(
+                                            topic,
+                                            agg_id,
+                                            &com_id,
+                                            &span_id,
+                                            &UniResponse::Duplicate.to_bytes(),
+                                            EMPTY_BYTES,
+                                        )
+                                        .await
+                                    {
+                                        Ok(()) => info!(topic, %agg_id, "重复提交命令反馈成功"),
+                                        Err(e) => {
+                                            error!(topic, %agg_id, error = ?e, "重复提交命令反馈失败")
+                                        }
                                     }
+                                    return;
+                                }
+                                match evt.to_bytes(&mut arena) {
+                                    Ok(bytes) => match stream
+                                        .write(
+                                            topic,
+                                            agg_id,
+                                            &com_id,
+                                            &span_id,
+                                            na.revision(),
+                                            bytes.as_slice(),
+                                        )
+                                        .await
+                                    {
+                                        Ok(()) => {
+                                            info!(topic, %agg_id, "聚合类型事件写入成功");
+                                            agg = na;
+                                            coms.insert(com_id);
+                                            debug!("聚合版本：{}", agg.revision());
+                                        }
+                                        Err(e) => {
+                                            error!(topic, %agg_id, error = ?e, "聚合类型事件写入失败");
+                                            match stream
+                                                .respond(
+                                                    topic,
+                                                    agg_id,
+                                                    &com_id,
+                                                    &span_id,
+                                                    &e.response().to_bytes(),
+                                                    e.to_string().as_bytes(),
+                                                )
+                                                .await
+                                            {
+                                                Ok(()) => {
+                                                    info!(topic, %agg_id, "聚合类型事件写入失败反馈成功");
+                                                }
+                                                Err(e) => {
+                                                    error!(topic, %agg_id, error = ?e, "聚合类型事件写入失败反馈失败");
+                                                }
+                                            }
+                                        }
+                                    },
                                     Err(e) => {
-                                        error!("{com_id}: 聚合类型事件写入失败：{e}");
+                                        error!(topic, %agg_id, error = ?e, "聚合类型事件序列化错误");
                                         match stream
                                             .respond(
                                                 topic,
                                                 agg_id,
-                                                com_id,
-                                                &e.response().to_bytes(),
+                                                &com_id,
+                                                &span_id,
+                                                &UniResponse::CodeError.to_bytes(),
                                                 e.to_string().as_bytes(),
                                             )
                                             .await
                                         {
                                             Ok(()) => {
-                                                info!("{com_id}: 聚合类型事件写入失败反馈成功");
+                                                info!(topic, %agg_id, "聚合类型事件序列化错误反馈成功");
                                             }
                                             Err(e) => {
-                                                error!(
-                                                    "{com_id}: 聚合类型事件写入失败反馈失败：{e}"
-                                                );
+                                                error!(topic, %agg_id, error = ?e, "聚合类型事件序列化错误反馈失败");
                                             }
-                                        }
-                                    }
-                                },
-                                Err(e) => {
-                                    error!("{com_id}: 聚合类型事件序列化错误：{e}");
-                                    match stream
-                                        .respond(
-                                            topic,
-                                            agg_id,
-                                            com_id,
-                                            &UniResponse::CodeError.to_bytes(),
-                                            e.to_string().as_bytes(),
-                                        )
-                                        .await
-                                    {
-                                        Ok(()) => {
-                                            info!("{com_id}: 聚合类型事件序列化错误反馈成功");
-                                        }
-                                        Err(e) => {
-                                            error!("{com_id}: 聚合类型事件序列化错误反馈失败：{e}");
                                         }
                                     }
                                 }
                             }
-                        }
-                        Err(e) => {
-                            error!("{com_id}: 聚合命令预处理错误：{e}");
-                            match stream
-                                .respond(
-                                    topic,
-                                    agg_id,
-                                    com_id,
-                                    &e.response().to_bytes(),
-                                    e.to_string().as_bytes(),
-                                )
-                                .await
-                            {
-                                Ok(()) => {
-                                    info!("{com_id}: 聚合命令预处理错误反馈成功");
-                                }
-                                Err(e) => {
-                                    error!("{com_id}: 聚合命令预处理错误反馈失败：{e}");
+                            Err(e) => {
+                                error!(topic, %agg_id, error = ?e, "命令预处理错误");
+                                match stream
+                                    .respond(
+                                        topic,
+                                        agg_id,
+                                        &com_id,
+                                        &span_id,
+                                        &e.response().to_bytes(),
+                                        e.to_string().as_bytes(),
+                                    )
+                                    .await
+                                {
+                                    Ok(()) => {
+                                        info!(topic, %agg_id, "命令预处理错误反馈成功");
+                                    }
+                                    Err(e) => {
+                                        error!(topic, %agg_id, error = ?e, "命令预处理错误反馈失败");
+                                    }
                                 }
                             }
                         }
                     }
+                    .instrument(create_span("apply_command", com_id, span_id))
+                    .await;
                 }
                 None => break,
             }

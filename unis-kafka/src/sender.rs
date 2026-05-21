@@ -6,7 +6,7 @@ use dashmap::DashMap;
 use rdkafka::{
     ClientConfig, Message,
     consumer::{Consumer, StreamConsumer},
-    message::{BorrowedMessage, Header, Headers, OwnedHeaders},
+    message::{BorrowedMessage, Header, OwnedHeaders},
     producer::{FutureProducer, FutureRecord, future_producer::Delivery},
 };
 use rkyv::{
@@ -24,9 +24,9 @@ use tokio::{
     sync::{Notify, mpsc, oneshot},
     time::{Duration, Instant, MissedTickBehavior, interval_at},
 };
-use tracing::{Span, debug, error, info, info_span, instrument};
+use tracing::{Instrument, debug, error, info, warn};
 use unis::{
-    UniResponse,
+    UniResponse, create_span,
     domain::Config,
     sender::{Sender, Todo},
 };
@@ -128,18 +128,15 @@ where
         self.tx.send(todo)
     }
 
-    #[instrument(name = "build_sender", skip_all, fields(topic))]
     async fn new(ctx: &'static unis::app::Context) -> Result<Self, String> {
         let agg_type = A::type_name();
         let topic = A::topic();
-        Span::current().record("topic", topic);
         let cfg_name = agg_type.rsplit(".").next().ok_or("获取聚合名称失败")?;
         let settings = SENDER_CONFIG
             .tc
             .get(cfg_name)
             .ok_or("获取发送者消费配置失败")?;
         let cfg = SENDER_CONFIG.sender.get(cfg_name);
-        let topic_com = A::topic_com();
         let producer = match cfg.hotspot {
             true => Arc::new(
                 CP_CONFIG
@@ -148,7 +145,7 @@ where
             ),
             false => SHARED_CP.clone(),
         };
-        info!("成功创建 {topic_com} 聚合命令生产者");
+        info!(topic, "成功创建聚合命令生产者");
 
         let mut config = ClientConfig::new();
         for (key, value) in settings {
@@ -163,15 +160,13 @@ where
         );
         tc.subscribe(&[topic])
             .map_err(|e| format!("订阅聚合类型事件流失败：{e}"))?;
-        info!("成功订阅聚合类型事件流");
+        info!(topic, "成功订阅聚合类型事件流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Todo<A, C, E>>();
-        ctx.spawn_notify(move |ready, notify| {
-            Self::respond(topic, producer, topic_com, cfg, rx, ready, notify)
-        })
-        .await;
+        ctx.spawn_notify(move |ready, notify| Self::respond(producer, cfg, rx, ready, notify))
+            .await;
         let tx_clone = tx.clone();
-        ctx.spawn_notify(move |ready, notify| Self::consume(topic, tc, tx_clone, ready, notify))
+        ctx.spawn_notify(move |ready, notify| Self::consume(tc, tx_clone, ready, notify))
             .await;
 
         Ok(Self {
@@ -189,23 +184,19 @@ where
     E: EventEnum<A = A>,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
-    #[instrument(
-        name = "aggregate_respond",
-        skip(producer, topic_com, cfg, rx, ready, notify)
-    )]
     async fn respond(
-        topic: &'static str,
         producer: Arc<FutureProducer>,
-        topic_com: &'static str,
         cfg: SendConfig,
         mut rx: mpsc::UnboundedReceiver<Todo<A, C, E>>,
         ready: Arc<Notify>,
         notify: Arc<Notify>,
     ) {
+        let topic = A::topic();
+        let topic_com = A::topic_com();
         let mut arena = Arena::new();
         let rs: Arc<
             DashMap<
-                Uuid,
+                [u8; 16],
                 (
                     Option<oneshot::Sender<Result<Vec<u8>, UniResponse>>>,
                     Option<Result<Vec<u8>, UniResponse>>,
@@ -225,72 +216,107 @@ where
             tokio::select! {
                 biased;
                 _ = &mut notified => {
-                    info!("收到关闭信号，开始优雅退出");
+                    info!(topic, "收到关闭信号，开始优雅退出");
                     break;
                 }
                 _ = interval.tick() => {
                     rs.retain(|_, (_, _, t)| t.elapsed() < Duration::from_secs(cfg.retain));
                 }
                 data = rx.recv() => match data {
-                    Some(Todo::Reply { agg_id, com_id, com, res_tx }) => match rs.remove(&com_id) {
-                        Some((_, (Some(rep), None, _))) => {
-                            let _ = rep.send(Err(UniResponse::Conflict));
-                            rs.insert(com_id, (Some(res_tx), None, Instant::now()));
-                        }
-                        Some((_, (None, Some(res), _))) => {
-                            let _ = res_tx.send(res);
-                        }
-                        Some(_) => error!("请求反馈进入非法处理分支"),
-                        None => match com.to_bytes(&mut arena) {
-                            Ok(bytes) => {
-                                let producer = Arc::clone(&producer);
-                                let rs = Arc::clone(&rs);
-                                tokio::spawn(async move {
-                                    let record = FutureRecord::to(topic_com)
-                                        .payload(bytes.as_slice())
-                                        .key(agg_id.as_bytes())
-                                        .headers(OwnedHeaders::new_with_capacity(1).insert(Header {
-                                            key: "com_id",
-                                            value: Some(com_id.as_bytes()),
-                                        }));
-                                    match producer
-                                        .send(record, SENDER_CONFIG.timeout)
-                                        .await
-                                        .map_err(|(e, _)| UniError::SendError(e.to_string()))
-                                        .map(
-                                            |Delivery {
-                                                partition,
-                                                offset,
-                                                timestamp: _timestamp,
-                                            }| {
-                                                debug!("聚合 {agg_id} 命令 {com_id} 写入分区 {partition} 偏移 {offset}");
-                                            },
-                                        ) {
-                                        Ok(()) => {
-                                            rs.insert(com_id, (Some(res_tx), None, Instant::now()));
-                                        }
-                                        Err(e) => {
-                                            let _ = res_tx.send(Err(e.response()));
+                    Some(Todo::Reply { agg_id, com_id, span_id, com, res_tx }) => {
+                        create_span("commit_command", com_id, span_id).in_scope(|| {
+                            info!(topic, %agg_id, "开始提交命令");
+                            match rs.remove(&com_id) {
+                                Some((_, (Some(rep), None, _))) => {
+                                    warn!(topic, %agg_id, "已有相同的积压命令");
+                                    if let Err(_) = rep.send(Err(UniResponse::Conflict)) {
+                                        error!(topic, %agg_id, "命令结果反馈通道已关闭");
+                                    }
+                                    rs.insert(com_id, (Some(res_tx), None, Instant::now()));
+                                    info!(topic, %agg_id, "以新的命令反馈通道替换原有");
+                                }
+                                Some((_, (None, Some(res), _))) => {
+                                    info!(topic, %agg_id, "已有命令结果");
+                                    if let Err(_) = res_tx.send(res) {
+                                        error!(topic, %agg_id, "命令结果反馈通道已关闭");
+                                    }
+                                }
+                                Some(_) => error!(topic, %agg_id, "请求反馈进入非法处理分支"),
+                                None => match com.to_bytes(&mut arena) {
+                                    Ok(bytes) => {
+                                        let producer = Arc::clone(&producer);
+                                        let rs = Arc::clone(&rs);
+                                        tokio::spawn(async move {
+                                            let sp = create_span("write_kafka", com_id, span_id);
+                                            async move {
+                                                let record = FutureRecord::to(topic_com)
+                                                    .payload(bytes.as_slice())
+                                                    .key(agg_id.as_bytes())
+                                                    .headers(OwnedHeaders::new_with_capacity(2)
+                                                        .insert(Header {
+                                                            key: "com_id",
+                                                            value: Some(&com_id),
+                                                        })
+                                                        .insert(Header {
+                                                            key: "span_id",
+                                                            value: Some(&span_id),
+                                                        }));
+                                                match producer
+                                                    .send(record, SENDER_CONFIG.timeout)
+                                                    .await
+                                                    .map_err(|(e, _)| UniError::SendError(e.to_string()))
+                                                    .map(
+                                                        |Delivery {
+                                                            partition,
+                                                            offset,
+                                                            timestamp: _timestamp,
+                                                        }| {
+                                                            debug!(topic, %agg_id, "命令写入分区 {partition} 偏移 {offset}");
+                                                        },
+                                                    ) {
+                                                    Ok(()) => {
+                                                        rs.insert(com_id, (Some(res_tx), None, Instant::now()));
+                                                        info!(topic, %agg_id, "命令已写入 Kafka");
+                                                    }
+                                                    Err(e) => {
+                                                        error!(topic, %agg_id, error = ?e, "命令写入 Kafka 失败");
+                                                        if let Err(_) = res_tx.send(Err(e.response())) {
+                                                            error!(topic, %agg_id, "命令结果反馈通道已关闭");
+                                                        }
+                                                    }
+                                                }
+                                            }.instrument(sp).await;
+                                        });
+                                    }
+                                    Err(e) => {
+                                        error!(topic, %agg_id, error = ?e, "命令序列化失败");
+                                        if let Err(_) = res_tx.send(Err(e.response())) {
+                                            error!(topic, %agg_id, "命令结果反馈通道已关闭");
                                         }
                                     }
-                                });
+                                }
                             }
-                            Err(e) => {
-                                let _ = res_tx.send(Err(e.response()));
-                            }
-                        }
+                        });
                     }
-                    Some(Todo::Response { com_id, res }) => match rs.remove(&com_id) {
-                        Some((_, (Some(res_tx), None, _))) => {
-                            let _ = res_tx.send(res);
-                        }
-                        Some(_) => error!("发送反馈进入非法处理分支"),
-                        None => {
-                            rs.insert(com_id, (None, Some(res), Instant::now()));
-                        }
+                    Some(Todo::Response { agg_id, com_id, span_id, res }) => {
+                        create_span("respond_command", com_id, span_id).in_scope(|| {
+                            info!(topic, %agg_id, "命令已处理，开始反馈处理结果");
+                            match rs.remove(&com_id) {
+                                Some((_, (Some(res_tx), None, _))) => {
+                                    if let Err(_) = res_tx.send(res) {
+                                        error!(topic, %agg_id, "命令结果反馈通道已关闭");
+                                    }
+                                }
+                                Some(_) => error!(topic, %agg_id, "发送反馈进入非法处理分支"),
+                                None => {
+                                    rs.insert(com_id, (None, Some(res), Instant::now()));
+                                    warn!(topic, %agg_id, "找不到相关积压命令，处理结果待匹配");
+                                }
+                            }
+                        });
                     }
                     None => {
-                        info!("发送端已关闭，响应处理器稍后将停止工作");
+                        info!(topic, "发送端已关闭，响应处理器稍后将停止工作");
                         break;
                     }
                 }
@@ -298,14 +324,13 @@ where
         }
     }
 
-    #[instrument(name = "aggregate_consume", skip(tc, tx, ready, notify))]
     async fn consume(
-        topic: &'static str,
         tc: Arc<StreamConsumer>,
         tx: mpsc::UnboundedSender<Todo<A, C, E>>,
         ready: Arc<Notify>,
         notify: Arc<Notify>,
     ) {
+        let topic = A::topic();
         let notified = notify.notified();
         tokio::pin!(notified);
         ready.notify_one();
@@ -313,22 +338,19 @@ where
             tokio::select! {
                 biased;
                 _ = &mut notified => {
-                    info!("收到关闭信号，开始优雅退出");
+                    info!(topic, "收到关闭信号，开始优雅退出");
                     break;
                 }
                 data = tc.recv() => match data {
                     Ok(msg) => match process_message(&msg) {
-                        Ok((agg_id, com_id, res)) => {
-                            let span = info_span!(parent: None, "respond_command", topic, %agg_id, %com_id);
-                            span.clone().in_scope(|| {
-                                if let Err(e) = tx.send(Todo::Response { com_id, res }) {
-                                    error!("发送聚合命令反馈错误：{e}");
-                                }
-                            });
+                        Ok((agg_id, com_id, span_id, res)) => {
+                            if let Err(e) = tx.send(Todo::Response { agg_id, com_id, span_id, res }) {
+                                error!(topic, %agg_id, error = ?e, "发送聚合命令反馈错误");
+                            }
                         }
-                        Err(e) => error!("{e}"),
+                        Err(e) => error!(topic, error = ?e, "处理消息失败"),
                     }
-                    Err(e) => error!("消息错误：{e}"),
+                    Err(e) => error!(topic, error = ?e, "消息错误"),
                 }
             }
         }
@@ -337,37 +359,20 @@ where
 
 fn process_message(
     msg: &BorrowedMessage<'_>,
-) -> Result<(Uuid, Uuid, Result<Vec<u8>, UniResponse>), UniError> {
-    let key = msg.key().ok_or("消息键不存在")?;
-    let agg_id = Uuid::from_slice(key).map_err(|e| UniError::MsgError(e.to_string()))?;
-    debug!("提取聚合Id：{agg_id}");
-
+) -> Result<(Uuid, [u8; 16], [u8; 8], Result<Vec<u8>, UniResponse>), UniError> {
+    let agg_id = crate::get_agg_key(msg)?;
     let headers = msg.headers().ok_or("消息头不存在")?;
-
-    let id = headers
-        .iter()
-        .find(|h| h.key == "com_id")
-        .ok_or("键为'com_id'的消息头不存在")?
-        .value
-        .ok_or("键'com_id'对应的值为空")?;
-    let com_id = Uuid::from_slice(id).map_err(|e| UniError::MsgError(e.to_string()))?;
-    debug!("提取命令Id：{com_id}");
-
-    let res_data = headers
-        .iter()
-        .find(|h| h.key == "response")
-        .ok_or("键为'response'的消息头不存在")?
-        .value
-        .ok_or("键'response'对应的值为空")?;
-    let res = UniResponse::from_bytes(res_data);
-    debug!("提取命令处理结果：{:?}", res);
+    let com_id = crate::get_com_id(headers)?;
+    let span_id = crate::get_span_id(headers)?;
+    let res = crate::get_response(headers)?;
 
     match res {
         UniResponse::Success => Ok((
             agg_id,
             com_id,
+            span_id,
             Ok(msg.payload().ok_or("消息体不存在")?.to_vec()),
         )),
-        res => Ok((agg_id, com_id, Err(res))),
+        res => Ok((agg_id, com_id, span_id, Err(res))),
     }
 }
