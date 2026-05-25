@@ -2,11 +2,14 @@ use axum::{Router, http::StatusCode, routing::get};
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, SpanExporter};
-use opentelemetry_sdk::{Resource, logs::SdkLoggerProvider, trace::SdkTracerProvider};
+use opentelemetry_sdk::{
+    Resource,
+    logs::SdkLoggerProvider,
+    trace::{Sampler, SdkTracerProvider},
+};
 use std::sync::OnceLock;
 use tracing_appender::non_blocking;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{EnvFilter, Registry};
+use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt};
 use unis_kafka::projector::{self, Topic};
 
 fn get_resource() -> Resource {
@@ -23,11 +26,12 @@ fn init_logger() -> SdkLoggerProvider {
         .with_batch_exporter(exporter)
         .build()
 }
-
+// TODO：优化采样策略
 fn init_tracer() -> SdkTracerProvider {
     let exporter = SpanExporter::builder().build().expect("创建追踪导出器失败");
     SdkTracerProvider::builder()
         .with_resource(get_resource())
+        .with_sampler(Sampler::AlwaysOn)
         .with_batch_exporter(exporter)
         .build()
 }

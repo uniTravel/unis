@@ -12,6 +12,10 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use http::HeaderMap;
+use opentelemetry::{
+    Context, SpanId, TraceFlags, TraceId,
+    trace::{SpanContext, Status, TraceContextExt},
+};
 use rkyv::{
     Archive, Deserialize,
     bytecheck::CheckBytes,
@@ -22,6 +26,8 @@ use rkyv::{
 };
 use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
+use tracing::{Span, error, info_span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use validator::Validate;
 
 /// 处理键值的中间件
@@ -33,6 +39,23 @@ pub async fn key_middleware(headers: HeaderMap, mut req: Request, next: Next) ->
             com_id,
             span_id,
         }) => {
+            let span_context = SpanContext::new(
+                TraceId::from_bytes(com_id),
+                SpanId::from_bytes(span_id),
+                TraceFlags::default(),
+                true,
+                Default::default(),
+            );
+            let cx = Context::new().with_remote_span_context(span_context);
+
+            let root_span = info_span!("handle_command");
+            if let Err(e) = root_span.set_parent(cx) {
+                error!(error = ?e, "设置 Span 上下文失败");
+            }
+            let _guard = root_span.enter();
+            let otel_context = root_span.context();
+            let otel_span = otel_context.span();
+            let span_id = otel_span.span_context().span_id().to_bytes();
             req.extensions_mut().insert(UniKey {
                 agg_id,
                 com_id,
@@ -164,6 +187,9 @@ pub fn into(
     res: Result<Vec<u8>, UniResponse>,
     lang: &str,
 ) -> Result<Vec<u8>, (StatusCode, String)> {
+    let span = Span::current();
+    // TODO：根据响应决定追踪的状态
+    span.set_status(Status::error("description"));
     match res {
         Ok(res) => Ok(res),
         Err(UniResponse::Duplicate) => Err(response(UniResponse::Duplicate, lang)),

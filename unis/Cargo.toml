@@ -1,7 +1,7 @@
 [package]
 name = "unis"
 description = "轻量级CQRS框架。"
-version = "0.1.9"
+version = "0.1.10"
 
 edition.workspace = true
 authors.workspace = true
@@ -29,6 +29,7 @@ config.workspace = true
 validator.workspace = true
 http.workspace = true
 opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
 tracing-opentelemetry.workspace = true
 
 axum = { workspace = true, optional = true }

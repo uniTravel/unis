@@ -23,8 +23,8 @@ use tokio::{
     task::JoinSet,
     time::{Duration, Instant, sleep},
 };
-use tracing::{Instrument, debug, error, info, instrument};
-use unis::{UniResponse, create_span, domain::Config, errors::UniError};
+use tracing::{Instrument, error, info, info_span, instrument, warn};
+use unis::{UniResponse, domain::Config, errors::UniError, link_context};
 use uuid::Uuid;
 
 pub use unis::app::context;
@@ -67,8 +67,6 @@ enum ProjectError {
     MetadataError,
     #[error("{0}")]
     KafkaError(#[from] rdkafka::error::KafkaError),
-    #[error("{0}")]
-    JoinError(#[from] tokio::task::JoinError),
 }
 
 fn create_producer() -> Result<FutureProducer, KafkaError> {
@@ -113,15 +111,11 @@ pub async fn launch(ctx: &'static unis::app::Context, topics: Vec<&'static str>)
                 match process(&topics, &ap, &tc, Arc::clone(&ready), Arc::clone(&notify)).await {
                     Ok(()) => break,
                     Err(ProjectError::UniError(e)) => {
-                        error!(error = ?e, "投影处理错误");
+                        error!(error = ?e, "处理消息数据出错，即将退出应用");
                         break;
                     }
                     Err(ProjectError::MetadataError) => error!("获取消费组元数据失败"),
                     Err(ProjectError::KafkaError(e)) => {
-                        error!(error = ?e, "投影处理错误");
-                        ap = create_producer().expect("重建投影生产者失败");
-                    }
-                    Err(ProjectError::JoinError(e)) => {
                         error!(error = ?e, "投影处理错误");
                         ap = create_producer().expect("重建投影生产者失败");
                     }
@@ -222,7 +216,7 @@ async fn process(
     }
 }
 
-#[instrument(name = "batch_project", skip_all)]
+#[instrument(name = "batch_project", err(Debug), skip_all)]
 async fn process_batch(
     ap: &FutureProducer,
     tc: &StreamConsumer,
@@ -231,60 +225,69 @@ async fn process_batch(
     reason: &str,
 ) -> Result<(), ProjectError> {
     info!("提交批量投影：{reason}");
-    let tx_span = tracing::Span::current();
     let cgm = tc.group_metadata().ok_or(ProjectError::MetadataError)?;
     let msg_vec: Vec<(String, Vec<([u8; 16], [u8; 8], Vec<u8>)>)> = agg_msgs.drain().collect();
     let offset_vec: Vec<((String, i32), i64)> = offsets.drain().collect();
-    let mut join_set = JoinSet::new();
+    let mut join_set: JoinSet<Result<(), KafkaError>> = JoinSet::new();
 
     ap.begin_transaction()?;
 
     for (topic, msgs) in msg_vec {
         for (com_id, span_id, payload) in msgs {
-            let sp = create_span("project_command", com_id, span_id);
-            sp.follows_from(&tx_span);
+            let sp = link_context(info_span!("project"), com_id, span_id);
             let record = FutureRecord::to(&topic).payload(&payload).key(&com_id);
             match ap.send_result(record) {
                 Ok(future) => {
-                    join_set.spawn(async { future.instrument(sp).await });
+                    join_set.spawn(
+                        async {
+                            match future.await {
+                                Ok(Ok(Delivery {
+                                    partition,
+                                    offset,
+                                    timestamp: _,
+                                })) => {
+                                    info!("转存的事件写到分区 {partition} 偏移 {offset}");
+                                    Ok(())
+                                }
+                                Ok(Err((e, _))) => {
+                                    error!(error = ?e, "消息投递失败");
+                                    Err(e)
+                                }
+                                Err(e) => {
+                                    error!(error = ?e, "任务取消");
+                                    Ok(())
+                                }
+                            }
+                        }
+                        .instrument(sp),
+                    );
                 }
                 Err((e, _)) => {
+                    warn!("生产消息有误，开始中止事务");
                     ap.abort_transaction(Duration::from_secs(30))?;
-                    join_set.abort_all();
                     return Err(e.into());
                 }
             }
         }
     }
 
+    let mut err: Option<KafkaError> = None;
     while let Some(result) = join_set.join_next().await {
         match result {
-            Ok(Ok(Ok(Delivery {
-                partition,
-                offset,
-                timestamp: _,
-            }))) => {
-                info!("转存的事件写到分区 {partition} 偏移 {offset}");
-            }
-            Ok(Ok(Err((e, _)))) => {
-                error!(error = ?e, "消息投递失败，中止事务");
-                ap.abort_transaction(Duration::from_secs(30))?;
-                join_set.abort_all();
-                return Err(e.into());
-            }
             Ok(Err(e)) => {
-                error!(error = ?e, "任务取消，中止事务");
-                ap.abort_transaction(Duration::from_secs(30))?;
                 join_set.abort_all();
-                return Err(KafkaError::Canceled.into());
+                if err.is_none() {
+                    err = Some(e);
+                }
             }
-            Err(e) => {
-                error!(error = ?e, "任务执行失败，中止事务");
-                ap.abort_transaction(Duration::from_secs(30))?;
-                join_set.abort_all();
-                return Err(e.into());
-            }
+            _ => {}
         }
+    }
+
+    if let Some(e) = err {
+        warn!("投递消息有误，开始中止事务");
+        ap.abort_transaction(Duration::from_secs(30))?;
+        return Err(e.into());
     }
 
     let mut offsets = TopicPartitionList::new();
@@ -292,17 +295,19 @@ async fn process_batch(
         offsets.add_partition_offset(&topic, partition, rdkafka::Offset::Offset(offset + 1))?;
     }
     if let Err(e) = ap.send_offsets_to_transaction(&offsets, &cgm, Duration::from_secs(30)) {
+        warn!("提交偏移失败，开始中止事务");
         ap.abort_transaction(Duration::from_secs(30))?;
         return Err(e.into());
     }
 
-    debug!("提交事务");
+    info!("开始提交事务");
     if let Err(e) = ap.commit_transaction(Duration::from_secs(30)) {
+        warn!("提交事务失败，开始中止事务");
         ap.abort_transaction(Duration::from_secs(30))?;
         return Err(e.into());
     }
 
-    info!("完成批量投影");
+    info!("完成批量投影事务");
     Ok(())
 }
 

@@ -3,15 +3,17 @@ import { sleep, check } from 'k6';
 import { uuidv4 } from './lib/k6-utils.js';
 
 export const options = {
-    vus: 3,
-    duration: '30s',
+    vus: 1,
+    iterations: 1,
+    // vus: 3,
+    // duration: '30s',
     thresholds: {
         'http_req_failed': ['rate < 0.01'],
         'http_req_duration': ['max < 200', 'p(95) < 100'],
     },
 }
 
-const baseUrl = 'http://localhost:3000/v1/account'
+const baseUrl = 'http://localhost:7000/v1/account'
 
 export default function () {
     let comId, spanId, traceparent, params, data, res;

@@ -39,21 +39,21 @@ pub use axum::{AxumCommand, into, key_middleware};
 #[cfg(any(test, feature = "test-utils"))]
 #[cfg(feature = "sender")]
 pub use i18n::validate;
-#[cfg(feature = "sender")]
-pub use request::{JsonFormat, RkyvFormat, UniKey};
-
-use crate::domain::CommandEnum;
 use opentelemetry::{
     Context, SpanId, TraceFlags, TraceId,
     trace::{SpanContext, TraceContextExt},
 };
+#[cfg(feature = "sender")]
+pub use request::{JsonFormat, RkyvFormat, UniKey};
+use tracing::{Span, error};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+use crate::domain::CommandEnum;
 use rkyv::{
     Archive, Deserialize,
     de::Pool,
     rancor::{Error, Strategy},
 };
-use tracing::{Level, Span, error, span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
 /// 命令消息结构
@@ -72,8 +72,8 @@ where
     pub com: C,
 }
 
-/// 创建子 Span
-pub fn create_span(name: &str, com_id: [u8; 16], span_id: [u8; 8]) -> Span {
+/// 为 Span 附加上下文
+pub fn span_context(span: Span, com_id: [u8; 16], span_id: [u8; 8]) -> Span {
     let span_context = SpanContext::new(
         TraceId::from_bytes(com_id),
         SpanId::from_bytes(span_id),
@@ -83,9 +83,22 @@ pub fn create_span(name: &str, com_id: [u8; 16], span_id: [u8; 8]) -> Span {
     );
 
     let cx = Context::new().with_remote_span_context(span_context);
-    let span = span!(Level::INFO, "{}", name);
     if let Err(e) = span.set_parent(cx) {
-        error!(name, error = ?e, "设置 Span 上下文失败");
+        error!(error = ?e, "设置 Span 上下文失败");
     }
+    span
+}
+
+/// 为 Span 链接上下文
+pub fn link_context(span: Span, com_id: [u8; 16], span_id: [u8; 8]) -> Span {
+    let span_context = SpanContext::new(
+        TraceId::from_bytes(com_id),
+        SpanId::from_bytes(span_id),
+        TraceFlags::default(),
+        false,
+        Default::default(),
+    );
+
+    span.add_link(span_context);
     span
 }

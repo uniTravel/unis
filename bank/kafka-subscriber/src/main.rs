@@ -3,7 +3,11 @@ use domain::{account::AccountCommand, transaction::TransactionCommand};
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, SpanExporter};
-use opentelemetry_sdk::{Resource, logs::SdkLoggerProvider, trace::SdkTracerProvider};
+use opentelemetry_sdk::{
+    Resource,
+    logs::SdkLoggerProvider,
+    trace::{Sampler, SdkTracerProvider},
+};
 use std::sync::OnceLock;
 use tracing_appender::non_blocking;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt};
@@ -28,6 +32,7 @@ fn init_tracer() -> SdkTracerProvider {
     let exporter = SpanExporter::builder().build().expect("创建追踪导出器失败");
     SdkTracerProvider::builder()
         .with_resource(get_resource())
+        .with_sampler(Sampler::AlwaysOn)
         .with_batch_exporter(exporter)
         .build()
 }
@@ -62,4 +67,5 @@ async fn main() {
         .with_graceful_shutdown(ctx.all_done())
         .await;
     let _ = logger_provider.shutdown();
+    let _ = tracer_provider.shutdown();
 }

@@ -24,11 +24,12 @@ use tokio::{
     sync::{Notify, mpsc, oneshot},
     time::{Duration, Instant, MissedTickBehavior, interval_at},
 };
-use tracing::{Instrument, debug, error, info, warn};
+use tracing::{Instrument, debug, error, info, info_span, warn};
 use unis::{
-    UniResponse, create_span,
+    UniResponse,
     domain::Config,
     sender::{Sender, Todo},
+    span_context,
 };
 use unis::{
     config::SendConfig,
@@ -224,7 +225,7 @@ where
                 }
                 data = rx.recv() => match data {
                     Some(Todo::Reply { agg_id, com_id, span_id, com, res_tx }) => {
-                        create_span("commit_command", com_id, span_id).in_scope(|| {
+                        span_context(info_span!("commit"), com_id, span_id).in_scope(|| {
                             info!(topic, %agg_id, "开始提交命令");
                             match rs.remove(&com_id) {
                                 Some((_, (Some(rep), None, _))) => {
@@ -247,8 +248,7 @@ where
                                         let producer = Arc::clone(&producer);
                                         let rs = Arc::clone(&rs);
                                         tokio::spawn(async move {
-                                            let sp = create_span("write_kafka", com_id, span_id);
-                                            async move {
+                                            async {
                                                 let record = FutureRecord::to(topic_com)
                                                     .payload(bytes.as_slice())
                                                     .key(agg_id.as_bytes())
@@ -285,7 +285,7 @@ where
                                                         }
                                                     }
                                                 }
-                                            }.instrument(sp).await;
+                                            }.instrument(span_context(info_span!("send"), com_id, span_id)).await;
                                         });
                                     }
                                     Err(e) => {
@@ -299,7 +299,7 @@ where
                         });
                     }
                     Some(Todo::Response { agg_id, com_id, span_id, res }) => {
-                        create_span("respond_command", com_id, span_id).in_scope(|| {
+                        span_context(info_span!("respond"), com_id, span_id).in_scope(|| {
                             info!(topic, %agg_id, "命令已处理，开始反馈处理结果");
                             match rs.remove(&com_id) {
                                 Some((_, (Some(res_tx), None, _))) => {
