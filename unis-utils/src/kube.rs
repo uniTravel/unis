@@ -24,7 +24,7 @@ impl KubeCluster {
             panic!("命名空间不能设为 default")
         }
         KubeCluster {
-            namespace: namespace.to_string(),
+            namespace: namespace.to_owned(),
         }
     }
 
@@ -87,9 +87,9 @@ impl HelmRelease {
         let lock_dir = std::env::temp_dir().join(name);
 
         HelmRelease {
-            name: name.to_string(),
+            name: name.to_owned(),
             chart,
-            namespace: namespace.to_string(),
+            namespace: namespace.to_owned(),
             lock_dir,
         }
     }

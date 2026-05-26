@@ -1,6 +1,6 @@
 use unis::{
     domain::{Command, Event},
-    errors::UniError,
+    errors::CheckError,
     macros::{command, event},
 };
 
@@ -18,15 +18,12 @@ impl Command for VerifyAccount {
     type A = super::Account;
     type E = AccountVerified;
 
-    fn check(&self, agg: &Self::A) -> Result<(), UniError> {
+    fn check(&self, agg: &Self::A) -> Result<(), CheckError> {
         if agg.code.is_empty() {
-            return Err(UniError::CheckError("尚未创建，不能审核".to_string()));
+            return Err(CheckError("尚未创建，不能审核"));
         }
         if !agg.verified_by.is_empty() {
-            return Err(UniError::CheckError(format!(
-                "已经审核，结论为 {}",
-                agg.verified
-            )));
+            return Err(CheckError("已经审核"));
         }
 
         Ok(())

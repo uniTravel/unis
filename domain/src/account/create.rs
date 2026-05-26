@@ -1,7 +1,7 @@
 use crate::validate;
 use unis::{
     domain::{Command, Event},
-    errors::UniError,
+    errors::CheckError,
     macros::{command, event},
 };
 
@@ -24,7 +24,7 @@ impl Command for CreateAccount {
     type A = super::Account;
     type E = AccountCreated;
 
-    fn check(&self, _agg: &Self::A) -> Result<(), UniError> {
+    fn check(&self, _agg: &Self::A) -> Result<(), CheckError> {
         Ok(())
     }
 

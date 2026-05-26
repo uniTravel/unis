@@ -172,7 +172,7 @@ async fn process(
             data = tc.recv() => match data {
                 Ok(msg) => match process_message(&msg) {
                     Ok((agg_id, com_id, span_id, payload, res)) if res == UniResponse::Success => {
-                        let agg_type = msg.topic().to_string();
+                        let agg_type = msg.topic().to_owned();
                         let mut topic = String::with_capacity(agg_type.len() + 37);
                         topic.push_str(&agg_type);
                         topic.push_str("-");

@@ -1,6 +1,6 @@
 use unis::{
     domain::{Command, Event},
-    errors::UniError,
+    errors::CheckError,
     macros::{command, event},
 };
 
@@ -16,12 +16,12 @@ impl Command for SetTransLimit {
     type A = super::Transaction;
     type E = TransLimitSetted;
 
-    fn check(&self, agg: &Self::A) -> Result<(), UniError> {
+    fn check(&self, agg: &Self::A) -> Result<(), CheckError> {
         if self.trans_limit > agg.limit {
-            return Err(UniError::CheckError("交易限额不得超过控制限额".to_string()));
+            return Err(CheckError("交易限额不得超过控制限额"));
         }
         if self.trans_limit == agg.trans_limit {
-            return Err(UniError::CheckError("交易限额无变化".to_string()));
+            return Err(CheckError("交易限额无变化"));
         }
 
         Ok(())

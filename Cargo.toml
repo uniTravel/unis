@@ -23,7 +23,7 @@ repository = "https://github.com/uniTravel/unis"
 unis = { version = "0.1.10", path = "./unis" }
 unis-kafka = { version = "0.1.8", path = "./unis-kafka" }
 unis-macros = { version = "0.1.5", path = "./unis-macros" }
-unis-utils = { version = "0.1.0", path = "./unis-utils" }
+unis-utils = { version = "0.1.1", path = "./unis-utils" }
 
 # 基础
 uuid = { version = "1", features = ["v4", "serde"] }

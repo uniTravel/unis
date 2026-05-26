@@ -39,21 +39,21 @@ pub use axum::{AxumCommand, into, key_middleware};
 #[cfg(any(test, feature = "test-utils"))]
 #[cfg(feature = "sender")]
 pub use i18n::validate;
+#[cfg(feature = "sender")]
+pub use request::{JsonFormat, RkyvFormat, UniKey};
+
+use crate::domain::CommandEnum;
 use opentelemetry::{
     Context, SpanId, TraceFlags, TraceId,
     trace::{SpanContext, TraceContextExt},
 };
-#[cfg(feature = "sender")]
-pub use request::{JsonFormat, RkyvFormat, UniKey};
-use tracing::{Span, error};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-use crate::domain::CommandEnum;
 use rkyv::{
     Archive, Deserialize,
     de::Pool,
     rancor::{Error, Strategy},
 };
+use tracing::{Span, error};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
 /// 命令消息结构

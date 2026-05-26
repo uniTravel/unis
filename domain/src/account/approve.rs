@@ -1,6 +1,6 @@
 use unis::{
     domain::{Command, Event},
-    errors::UniError,
+    errors::CheckError,
     macros::{command, event},
 };
 
@@ -22,15 +22,12 @@ impl Command for ApproveAccount {
     type A = super::Account;
     type E = AccountApproved;
 
-    fn check(&self, agg: &Self::A) -> Result<(), UniError> {
+    fn check(&self, agg: &Self::A) -> Result<(), CheckError> {
         if !agg.verified {
-            return Err(UniError::CheckError("审核未通过".to_string()));
+            return Err(CheckError("审核未通过"));
         }
         if !agg.approved_by.is_empty() {
-            return Err(UniError::CheckError(format!(
-                "已经审批，结论为 {}",
-                agg.approved
-            )));
+            return Err(CheckError("已经审批"));
         }
 
         Ok(())

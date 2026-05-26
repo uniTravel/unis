@@ -1,6 +1,6 @@
 use unis::{
     domain::{Command, Event},
-    errors::UniError,
+    errors::CheckError,
     macros::{command, event},
 };
 
@@ -16,12 +16,12 @@ impl Command for ChangeLimit {
     type A = super::Transaction;
     type E = LimitChanged;
 
-    fn check(&self, agg: &Self::A) -> Result<(), UniError> {
+    fn check(&self, agg: &Self::A) -> Result<(), CheckError> {
         if agg.limit == 0 {
-            return Err(UniError::CheckError("待修改限额须大于零".to_string()));
+            return Err(CheckError("待修改限额须大于零"));
         }
         if self.limit == agg.limit {
-            return Err(UniError::CheckError("限额无变化".to_string()));
+            return Err(CheckError("限额无变化"));
         }
 
         Ok(())

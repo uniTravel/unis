@@ -1,6 +1,6 @@
 //! # **unis** 领域特征
 
-use crate::errors::UniError;
+use crate::errors::{CheckError, UniError};
 use ahash::AHashSet;
 use rkyv::{
     Archive, Deserialize, Serialize,
@@ -63,7 +63,7 @@ pub trait Command:
     type E: Event<A = Self::A>;
 
     /// 检查命令是否合法
-    fn check(&self, agg: &Self::A) -> Result<(), UniError>;
+    fn check(&self, agg: &Self::A) -> Result<(), CheckError>;
     /// 执行命令，生成相应事件
     fn apply(self, agg: &Self::A) -> Self::E;
 

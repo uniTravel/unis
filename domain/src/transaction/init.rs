@@ -2,7 +2,7 @@ use crate::validate;
 use chrono::Local;
 use unis::{
     domain::{Command, Event},
-    errors::UniError,
+    errors::CheckError,
     macros::{command, event},
 };
 
@@ -26,7 +26,7 @@ impl Command for InitPeriod {
     type A = super::Transaction;
     type E = PeriodInited;
 
-    fn check(&self, _agg: &Self::A) -> Result<(), UniError> {
+    fn check(&self, _agg: &Self::A) -> Result<(), CheckError> {
         Ok(())
     }
 

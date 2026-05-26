@@ -1,7 +1,7 @@
 use crate::validate;
 use unis::{
     domain::{Command, Event},
-    errors::UniError,
+    errors::CheckError,
     macros::{command, event},
 };
 
@@ -24,15 +24,15 @@ impl Command for TransferOut {
     type A = super::Transaction;
     type E = TransferOutFinished;
 
-    fn check(&self, agg: &Self::A) -> Result<(), UniError> {
+    fn check(&self, agg: &Self::A) -> Result<(), CheckError> {
         if agg.limit == 0 {
-            return Err(UniError::CheckError("交易期间尚未生效".to_string()));
+            return Err(CheckError("交易期间尚未生效"));
         }
         if self.amount > agg.balance {
-            return Err(UniError::CheckError("余额不足".to_string()));
+            return Err(CheckError("余额不足"));
         }
         if self.amount > agg.trans_limit {
-            return Err(UniError::CheckError("金额超限".to_string()));
+            return Err(CheckError("金额超限"));
         }
 
         Ok(())

@@ -3,6 +3,11 @@
 use crate::UniResponse;
 use thiserror::Error;
 
+/// 命令数据验证错误
+#[derive(Debug, Error)]
+#[error("{0}")]
+pub struct CheckError(pub &'static str);
+
 /// **unis** 错误枚举
 #[derive(Debug, Error)]
 pub enum UniError {
@@ -10,10 +15,10 @@ pub enum UniError {
     #[error("命令重复提交")]
     Duplicate,
     /// 命令数据验证错误
-    #[error("命令数据验证错误：{0}")]
-    CheckError(String),
+    #[error(transparent)]
+    CheckError(#[from] CheckError),
     /// 序列化错误
-    #[error("序列化错误")]
+    #[error(transparent)]
     CodeError(#[from] rkyv::rancor::Error),
     /// 消息处理错误
     #[error("消息处理错误：{0}")]

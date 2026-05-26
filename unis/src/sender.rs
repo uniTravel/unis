@@ -5,12 +5,15 @@ use crate::{
     app::Context,
     domain::{Aggregate, CommandEnum, EventEnum},
 };
+use opentelemetry::trace::Status;
 use rkyv::{
     Archive, Deserialize,
     de::Pool,
     rancor::{Error, Strategy},
 };
 use tokio::sync::{mpsc::error::SendError, oneshot};
+use tracing::{Span, error, info};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
 /// 发送者特征
@@ -51,7 +54,36 @@ where
                 panic!("聚合命令响应处理器已停止工作：{e}");
             }
 
-            res_rx.await.map_err(|_| UniResponse::ResponseError)?
+            let span = Span::current();
+            match res_rx.await {
+                Ok(Ok(res)) => {
+                    info!(%agg_id, "命令处理成功");
+                    Ok(res)
+                }
+                Ok(Err(UniResponse::SendError)) => {
+                    error!(%agg_id, error = ?UniResponse::SendError, "命令处理失败");
+                    span.set_status(Status::error("发送命令失败"));
+                    Err(UniResponse::SendError)
+                }
+                Ok(Err(UniResponse::ReadError)) => {
+                    error!(%agg_id, error = ?UniResponse::ReadError, "命令处理失败");
+                    span.set_status(Status::error("加载聚合事件流失败"));
+                    Err(UniResponse::ReadError)
+                }
+                Ok(Err(UniResponse::WriteError)) => {
+                    error!(%agg_id, error = ?UniResponse::WriteError, "命令处理失败");
+                    span.set_status(Status::error("聚合事件持久化失败"));
+                    Err(UniResponse::WriteError)
+                }
+                Ok(Err(e)) => {
+                    error!(%agg_id, error = ?e, "命令处理失败");
+                    Err(e)
+                }
+                Err(e) => {
+                    error!(%agg_id, error = ?e, "命令结果反馈通道意外关闭");
+                    Err(UniResponse::ResponseError)
+                }
+            }
         }
     }
 }

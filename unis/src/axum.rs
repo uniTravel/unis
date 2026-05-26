@@ -14,7 +14,7 @@ use axum::{
 use http::HeaderMap;
 use opentelemetry::{
     Context, SpanId, TraceFlags, TraceId,
-    trace::{SpanContext, Status, TraceContextExt},
+    trace::{SpanContext, TraceContextExt},
 };
 use rkyv::{
     Archive, Deserialize,
@@ -26,7 +26,7 @@ use rkyv::{
 };
 use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
-use tracing::{Span, error, info_span};
+use tracing::{error, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use validator::Validate;
 
@@ -152,7 +152,7 @@ fn extract_language(headers: &HeaderMap) -> String {
         .and_then(|l| l.split(';').next())
         .and_then(|t| t.split('-').next())
         .unwrap_or("zh")
-        .to_string()
+        .to_owned()
 }
 
 fn response(res: UniResponse, lang: &str) -> (StatusCode, String) {
@@ -177,8 +177,8 @@ fn response(res: UniResponse, lang: &str) -> (StatusCode, String) {
         .or(i18n::RESPONSE.get("zh"))
         .and_then(|l| l.get(code))
     {
-        Some(r) => (status, r.to_string()),
-        None => (status, code.to_string()),
+        Some(r) => (status, r.to_owned()),
+        None => (status, code.to_owned()),
     }
 }
 
@@ -187,12 +187,8 @@ pub fn into(
     res: Result<Vec<u8>, UniResponse>,
     lang: &str,
 ) -> Result<Vec<u8>, (StatusCode, String)> {
-    let span = Span::current();
-    // TODO：根据响应决定追踪的状态
-    span.set_status(Status::error("description"));
     match res {
         Ok(res) => Ok(res),
-        Err(UniResponse::Duplicate) => Err(response(UniResponse::Duplicate, lang)),
         Err(res) => Err(response(res, lang)),
     }
 }

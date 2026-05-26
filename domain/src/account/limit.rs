@@ -1,6 +1,6 @@
 use unis::{
     domain::{Command, Event},
-    errors::UniError,
+    errors::CheckError,
     macros::{command, event},
 };
 
@@ -16,12 +16,12 @@ impl Command for LimitAccount {
     type A = super::Account;
     type E = AccountLimited;
 
-    fn check(&self, agg: &Self::A) -> Result<(), UniError> {
+    fn check(&self, agg: &Self::A) -> Result<(), CheckError> {
         if !agg.approved {
-            return Err(UniError::CheckError("账户未批准".to_string()));
+            return Err(CheckError("账户未批准"));
         }
         if self.limit == agg.limit {
-            return Err(UniError::CheckError("限额无变化".to_string()));
+            return Err(CheckError("限额无变化"));
         }
 
         Ok(())

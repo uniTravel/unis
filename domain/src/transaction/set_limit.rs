@@ -1,7 +1,7 @@
 use crate::validate;
 use unis::{
     domain::{Command, Event},
-    errors::UniError,
+    errors::CheckError,
     macros::{command, event},
 };
 
@@ -27,12 +27,12 @@ impl Command for SetLimit {
     type A = super::Transaction;
     type E = LimitSetted;
 
-    fn check(&self, agg: &Self::A) -> Result<(), UniError> {
+    fn check(&self, agg: &Self::A) -> Result<(), CheckError> {
         if agg.account_code.is_empty() {
-            return Err(UniError::CheckError("交易期间尚未生效".to_string()));
+            return Err(CheckError("交易期间尚未生效"));
         }
         if agg.limit != 0 {
-            return Err(UniError::CheckError("不得重复设置限额".to_string()));
+            return Err(CheckError("不得重复设置限额"));
         }
 
         Ok(())

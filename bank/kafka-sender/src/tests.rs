@@ -19,7 +19,6 @@ use unis::{
     domain::{Aggregate, Event, EventEnum},
 };
 use uuid::Uuid;
-// TODO：解决测试不会追踪的问题
 static SETUP: LazyLock<()> = LazyLock::new(|| {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
     let (non_blocking, _guard) = non_blocking(std::io::stdout());

@@ -33,7 +33,7 @@ where
         .map_err(|e| UniError::ReadError(e.to_string()))?;
 
     if low == -1 || high == -1 {
-        return Err(UniError::ReadError("数据为空".to_owned()));
+        return Err(UniError::ReadError("未能获取聚合事件流水位数据".to_owned()));
     }
 
     debug!(topic_agg, "开始读取事件流数据");
@@ -51,12 +51,12 @@ where
                 }
             }
             Some(Err(e)) => {
-                debug!(topic_agg, "事件流数据错误：{e}");
+                debug!(topic_agg, error = ?e, "事件流数据错误");
                 return Err(UniError::ReadError(e.to_string()));
             }
             None => {
                 debug!(topic_agg, "结束事件流数据读取");
-                return Err(UniError::ReadError("聚合事件流未读到数据".to_string()));
+                return Err(UniError::ReadError("未能读取聚合事件流数据".to_owned()));
             }
         }
     }
