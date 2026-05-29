@@ -1,11 +1,8 @@
 mod account;
 mod transaction;
 
-use crate::{init_logger, init_tracer};
 use axum::{Router, body::Bytes, http::StatusCode};
 use domain::tests::*;
-use opentelemetry::trace::TracerProvider;
-use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use proptest::{prelude::*, strategy::ValueTree, test_runner::TestRunner};
 use proptest_state_machine::ReferenceStateMachine;
 use rstest::{fixture, rstest};
@@ -27,16 +24,7 @@ static SETUP: LazyLock<()> = LazyLock::new(|| {
         .with_target(false)
         .pretty()
         .with_test_writer();
-    let logger_provider = init_logger();
-    let logger_layer = OpenTelemetryTracingBridge::new(&logger_provider);
-    let tracer_provider = init_tracer();
-    let tracer_layer = tracing_opentelemetry::layer::<Registry>()
-        .with_tracer(tracer_provider.tracer("bank-sender"));
-    let subscriber = Registry::default()
-        .with(tracer_layer)
-        .with(logger_layer)
-        .with(env_filter)
-        .with(fmt_layer);
+    let subscriber = Registry::default().with(env_filter).with(fmt_layer);
     tracing::subscriber::set_global_default(subscriber).expect("设置全局追踪订阅者失败");
 
     match std::env::var("NEXTEST_TEST_NAME") {

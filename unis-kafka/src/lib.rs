@@ -58,6 +58,15 @@ fn get_span_id(headers: &BorrowedHeaders) -> Result<[u8; 8], UniError> {
         .map_err(|e| format!("提取'span_id'失败：{e}"))?)
 }
 
+fn get_trace_flags(headers: &BorrowedHeaders) -> Result<u8, UniError> {
+    Ok(headers
+        .iter()
+        .find(|h| h.key == "trace_flags")
+        .ok_or("键为'trace_flags'的消息头不存在")?
+        .value
+        .ok_or("键'trace_flags'对应的值为空")?[0])
+}
+
 #[inline(always)]
 fn get_response(headers: &BorrowedHeaders) -> Result<UniResponse, UniError> {
     let res_data = headers

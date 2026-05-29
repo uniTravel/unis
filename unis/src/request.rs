@@ -12,6 +12,8 @@ pub struct UniKey {
     pub com_id: [u8; 16],
     /// 追踪跨度 Id
     pub span_id: [u8; 8],
+    /// 追踪标志
+    pub trace_flags: u8,
 }
 
 fn hex_char_to_byte(c: u8) -> Option<u8> {
@@ -37,17 +39,20 @@ fn parse_hex<const N: usize>(hex_str: &str) -> Option<[u8; N]> {
     bytes.try_into().ok()
 }
 
-fn parse_traceparent(tp: &str) -> Option<([u8; 16], [u8; 8])> {
+fn parse_traceparent(tp: &str) -> Option<([u8; 16], [u8; 8], u8)> {
     let parts: Vec<&str> = tp.split('-').collect();
-
-    if parts.len() != 4 || parts[0] != "00" || parts[3] != "01" {
+    if parts.len() < 4 {
         return None;
     }
-
+    let version = u8::from_str_radix(parts[0], 16).ok()?;
+    if version > 254 || version == 0 && parts.len() != 4 {
+        return None;
+    }
     let trace_id = parse_hex::<16>(parts[1])?;
     let span_id = parse_hex::<8>(parts[2])?;
-
-    Some((trace_id, span_id))
+    let opts = u8::from_str_radix(parts[3], 16).ok()?;
+    let trace_flags = opts & 1;
+    Some((trace_id, span_id, trace_flags))
 }
 
 pub(crate) fn extract_key(headers: &HeaderMap) -> Option<UniKey> {
@@ -55,7 +60,7 @@ pub(crate) fn extract_key(headers: &HeaderMap) -> Option<UniKey> {
         .get("traceparent")
         .and_then(|v| v.to_str().ok())
         .and_then(|tp| parse_traceparent(tp))
-        .and_then(|(com_id, span_id)| {
+        .and_then(|(com_id, span_id, trace_flags)| {
             let agg_id = headers
                 .get("x-agg-id")
                 .and_then(|v| v.to_str().ok())
@@ -65,6 +70,7 @@ pub(crate) fn extract_key(headers: &HeaderMap) -> Option<UniKey> {
                 agg_id,
                 com_id,
                 span_id,
+                trace_flags,
             })
         })
 }

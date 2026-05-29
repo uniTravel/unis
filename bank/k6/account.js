@@ -3,10 +3,10 @@ import { sleep, check } from 'k6';
 import { uuidv4 } from './lib/k6-utils.js';
 
 export const options = {
-    vus: 1,
-    iterations: 1,
-    // vus: 3,
-    // duration: '30s',
+    // vus: 1,
+    // iterations: 1,
+    vus: 3,
+    duration: '30s',
     thresholds: {
         'http_req_failed': ['rate < 0.01'],
         'http_req_duration': ['max < 200', 'p(95) < 100'],

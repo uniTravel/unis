@@ -3,6 +3,7 @@
 use crate::config::SenderConfig;
 use ahash::RandomState;
 use dashmap::DashMap;
+use opentelemetry::trace::TraceContextExt;
 use rdkafka::{
     ClientConfig, Message,
     consumer::{Consumer, StreamConsumer},
@@ -25,11 +26,11 @@ use tokio::{
     time::{Duration, Instant, MissedTickBehavior, interval_at},
 };
 use tracing::{Instrument, debug, error, info, info_span, warn};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use unis::{
     UniResponse,
     domain::Config,
     sender::{Sender, Todo},
-    span_context,
 };
 use unis::{
     config::SendConfig,
@@ -224,8 +225,10 @@ where
                     rs.retain(|_, (_, _, t)| t.elapsed() < Duration::from_secs(cfg.retain));
                 }
                 data = rx.recv() => match data {
-                    Some(Todo::Reply { agg_id, com_id, span_id, com, res_tx }) => {
-                        span_context(info_span!("commit"), com_id, span_id).in_scope(|| {
+                    Some(Todo::Reply { agg_id, com_id, cx, com, res_tx }) => {
+                        let sp = info_span!("commit");
+                        let _ = sp.set_parent(cx.clone());
+                        sp.in_scope(|| {
                             info!(topic, %agg_id, "开始提交命令");
                             match rs.remove(&com_id) {
                                 Some((_, (Some(rep), None, _))) => {
@@ -247,12 +250,17 @@ where
                                     Ok(bytes) => {
                                         let producer = Arc::clone(&producer);
                                         let rs = Arc::clone(&rs);
+                                        let otel_span = cx.span();
+                                        let span_id = otel_span.span_context().span_id().to_bytes();
+                                        let trace_flags = otel_span.span_context().trace_flags().to_u8();
                                         tokio::spawn(async move {
+                                            let sp = info_span!("send");
+                                            let _ = sp.set_parent(cx);
                                             async {
                                                 let record = FutureRecord::to(topic_com)
                                                     .payload(bytes.as_slice())
                                                     .key(agg_id.as_bytes())
-                                                    .headers(OwnedHeaders::new_with_capacity(2)
+                                                    .headers(OwnedHeaders::new_with_capacity(3)
                                                         .insert(Header {
                                                             key: "com_id",
                                                             value: Some(&com_id),
@@ -260,6 +268,10 @@ where
                                                         .insert(Header {
                                                             key: "span_id",
                                                             value: Some(&span_id),
+                                                        })
+                                                        .insert(Header {
+                                                            key: "trace_flags",
+                                                            value: Some(&[trace_flags]),
                                                         }));
                                                 match producer
                                                     .send(record, SENDER_CONFIG.timeout)
@@ -285,7 +297,7 @@ where
                                                         }
                                                     }
                                                 }
-                                            }.instrument(span_context(info_span!("send"), com_id, span_id)).await;
+                                            }.instrument(sp).await;
                                         });
                                     }
                                     Err(e) => {
@@ -298,22 +310,18 @@ where
                             }
                         });
                     }
-                    Some(Todo::Response { agg_id, com_id, span_id, res }) => {
-                        span_context(info_span!("respond"), com_id, span_id).in_scope(|| {
-                            info!(topic, %agg_id, "命令已处理，开始反馈处理结果");
-                            match rs.remove(&com_id) {
-                                Some((_, (Some(res_tx), None, _))) => {
-                                    if let Err(_) = res_tx.send(res) {
-                                        error!(topic, %agg_id, "命令结果反馈通道已关闭");
-                                    }
-                                }
-                                Some(_) => error!(topic, %agg_id, "发送反馈进入非法处理分支"),
-                                None => {
-                                    rs.insert(com_id, (None, Some(res), Instant::now()));
-                                    warn!(topic, %agg_id, "找不到相关积压命令，处理结果待匹配");
+                    Some(Todo::Response { agg_id, com_id, res }) => {
+                        match rs.remove(&com_id) {
+                            Some((_, (Some(res_tx), None, _))) => {
+                                if let Err(_) = res_tx.send(res) {
+                                    error!(topic, %agg_id, "命令结果反馈通道已关闭");
                                 }
                             }
-                        });
+                            Some(_) => error!(topic, %agg_id, "发送反馈进入非法处理分支"),
+                            None => {
+                                rs.insert(com_id, (None, Some(res), Instant::now()));
+                            }
+                        }
                     }
                     None => {
                         info!(topic, "发送端已关闭，响应处理器稍后将停止工作");
@@ -343,8 +351,8 @@ where
                 }
                 data = tc.recv() => match data {
                     Ok(msg) => match process_message(&msg) {
-                        Ok((agg_id, com_id, span_id, res)) => {
-                            if let Err(e) = tx.send(Todo::Response { agg_id, com_id, span_id, res }) {
+                        Ok((agg_id, com_id, res)) => {
+                            if let Err(e) = tx.send(Todo::Response { agg_id, com_id, res }) {
                                 error!(topic, %agg_id, error = ?e, "发送聚合命令反馈错误");
                             }
                         }
@@ -359,20 +367,18 @@ where
 
 fn process_message(
     msg: &BorrowedMessage<'_>,
-) -> Result<(Uuid, [u8; 16], [u8; 8], Result<Vec<u8>, UniResponse>), UniError> {
+) -> Result<(Uuid, [u8; 16], Result<Vec<u8>, UniResponse>), UniError> {
     let agg_id = crate::get_agg_key(msg)?;
     let headers = msg.headers().ok_or("消息头不存在")?;
     let com_id = crate::get_com_id(headers)?;
-    let span_id = crate::get_span_id(headers)?;
     let res = crate::get_response(headers)?;
 
     match res {
         UniResponse::Success => Ok((
             agg_id,
             com_id,
-            span_id,
             Ok(msg.payload().ok_or("消息体不存在")?.to_vec()),
         )),
-        res => Ok((agg_id, com_id, span_id, Err(res))),
+        res => Ok((agg_id, com_id, Err(res))),
     }
 }

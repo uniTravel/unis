@@ -8,8 +8,9 @@ use opentelemetry_sdk::{
     trace::{Sampler, SdkTracerProvider},
 };
 use std::sync::OnceLock;
+use tracing::level_filters::LevelFilter;
 use tracing_appender::non_blocking;
-use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt};
+use tracing_subscriber::{EnvFilter, Layer, Registry, layer::SubscriberExt};
 use unis_kafka::projector::{self, Topic};
 
 fn get_resource() -> Resource {
@@ -26,7 +27,6 @@ fn init_logger() -> SdkLoggerProvider {
         .with_batch_exporter(exporter)
         .build()
 }
-// TODO：优化采样策略
 fn init_tracer() -> SdkTracerProvider {
     let exporter = SpanExporter::builder().build().expect("创建追踪导出器失败");
     SdkTracerProvider::builder()
@@ -43,16 +43,17 @@ async fn main() {
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(non_blocking)
         .with_target(false)
-        .pretty();
+        .pretty()
+        .with_filter(LevelFilter::INFO);
     let logger_provider = init_logger();
     let logger_layer = OpenTelemetryTracingBridge::new(&logger_provider);
     let tracer_provider = init_tracer();
-    let tracer_layer = tracing_opentelemetry::layer::<Registry>()
-        .with_tracer(tracer_provider.tracer("bank-projector"));
+    let tracer_layer =
+        tracing_opentelemetry::layer().with_tracer(tracer_provider.tracer("bank-projector"));
     let subscriber = Registry::default()
+        .with(env_filter)
         .with(tracer_layer)
         .with(logger_layer)
-        .with(env_filter)
         .with(fmt_layer);
     tracing::subscriber::set_global_default(subscriber).expect("设置全局追踪订阅者失败");
 

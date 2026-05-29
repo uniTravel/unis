@@ -9,7 +9,8 @@ datasources:
     jsonData:
       derivedFields:
         - name: Trace
-          matcherRegex: '"trace_id"[:\s]*"([a-f0-9]+)"'
+          matcherType: label
+          matcherRegex: trace_id
           url: "$${__value.raw}"
           datasourceUid: tempo
 
@@ -21,9 +22,9 @@ datasources:
     jsonData:
       tracesToLogsV2:
         datasourceUid: loki
-        spanStartTimeShift: '-10m'
-        spanEndTimeShift: '10m'
+        spanStartTimeShift: "-10m"
+        spanEndTimeShift: "10m"
         filterByTraceID: true
         tags:
-          - key: 'service.name'
-            value: 'service_name'
+          - key: "service.name"
+            value: "service_name"

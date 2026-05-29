@@ -1,5 +1,5 @@
 use crate::{
-    UniKey, UniResponse,
+    UniResponse,
     domain::Command,
     i18n,
     request::{self, JsonFormat, RkyvFormat},
@@ -12,10 +12,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use http::HeaderMap;
-use opentelemetry::{
-    Context, SpanId, TraceFlags, TraceId,
-    trace::{SpanContext, TraceContextExt},
-};
 use rkyv::{
     Archive, Deserialize,
     bytecheck::CheckBytes,
@@ -26,44 +22,18 @@ use rkyv::{
 };
 use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
-use tracing::{error, info_span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 use validator::Validate;
 
 /// 处理键值的中间件
 pub async fn key_middleware(headers: HeaderMap, mut req: Request, next: Next) -> Response {
     let lang = extract_language(&headers);
     match request::extract_key(req.headers()) {
-        Some(UniKey {
-            agg_id,
-            com_id,
-            span_id,
-        }) => {
-            let span_context = SpanContext::new(
-                TraceId::from_bytes(com_id),
-                SpanId::from_bytes(span_id),
-                TraceFlags::default(),
-                true,
-                Default::default(),
-            );
-            let cx = Context::new().with_remote_span_context(span_context);
-
-            let root_span = info_span!("handle_command");
-            if let Err(e) = root_span.set_parent(cx) {
-                error!(error = ?e, "设置 Span 上下文失败");
-            }
-            let _guard = root_span.enter();
-            let otel_context = root_span.context();
-            let otel_span = otel_context.span();
-            let span_id = otel_span.span_context().span_id().to_bytes();
-            req.extensions_mut().insert(UniKey {
-                agg_id,
-                com_id,
-                span_id,
-            });
+        Some(key) => {
+            let agg_id = key.agg_id.to_string().parse().unwrap();
+            req.extensions_mut().insert(key);
             let mut res = next.run(req).await;
             let headers = res.headers_mut();
-            headers.insert("x-agg-id", agg_id.to_string().parse().unwrap());
+            headers.insert("x-agg-id", agg_id);
             res
         }
         None => response(UniResponse::KeyError, &lang).into_response(),
@@ -241,7 +211,7 @@ pub async fn apply(
             .header(
                 "traceparent",
                 format!(
-                    "00-{}-{:016x}-01",
+                    "00-{}-{:016x}-00",
                     com_id.as_simple(),
                     span_id.as_u64_pair().0,
                 ),

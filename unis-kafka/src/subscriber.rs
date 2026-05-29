@@ -10,6 +10,10 @@ mod topic;
 use crate::config::SubscriberConfig;
 use ahash::RandomState;
 use dashmap::DashMap;
+use opentelemetry::{
+    Context, SpanId, TraceFlags, TraceId,
+    trace::{SpanContext, TraceContextExt},
+};
 use rdkafka::{
     ClientConfig, Message,
     consumer::{Consumer, StreamConsumer},
@@ -210,11 +214,21 @@ where
         let headers = msg.headers().ok_or("消息头不存在")?;
         let com_id = crate::get_com_id(headers)?;
         let span_id = crate::get_span_id(headers)?;
+        let trace_flags = crate::get_trace_flags(headers)?;
+        let span_context = SpanContext::new(
+            TraceId::from_bytes(com_id),
+            SpanId::from_bytes(span_id),
+            TraceFlags::new(trace_flags),
+            false,
+            Default::default(),
+        );
+        let cx = Context::new().with_remote_span_context(span_context);
         let com_data = msg.payload().ok_or("空消息体")?;
         Ok(Com {
             agg_id,
             com_id,
             span_id,
+            cx,
             com: C::from_bytes(com_data)?,
         })
     }
