@@ -26,7 +26,7 @@ async fn main() {
         "kafka",
         std::env::home_dir()
             .unwrap()
-            .join(".cache/helm/repository/kafka-0.1.1.tgz"),
+            .join(".cache/helm/repository/kafka.tgz"),
         namespace,
     );
     cluster.create_namespace().unwrap();
