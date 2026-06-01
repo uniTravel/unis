@@ -13,7 +13,11 @@ use uuid::Uuid;
 
 static POOL: LazyLock<ConsumerPool> = LazyLock::new(|| ConsumerPool::new());
 
-pub async fn load<E>(topic: &'static str, agg_id: Uuid) -> Result<Vec<([u8; 16], E)>, UniError>
+pub async fn load<E>(
+    topic: &'static str,
+    agg_id: Uuid,
+    checkpoint: u64,
+) -> Result<Vec<([u8; 16], E)>, UniError>
 where
     E: EventEnum,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
@@ -34,6 +38,15 @@ where
 
     if low == -1 || high == -1 {
         return Err(UniError::ReadError("未能获取聚合事件流水位数据".to_owned()));
+    }
+
+    if checkpoint != u64::MAX {
+        let cp: i64 = checkpoint
+            .try_into()
+            .map_err(|e| UniError::ReadError(format!("转换检查点出错：{e}")))?;
+        if cp != high - 1 {
+            return Err(UniError::ReadError("检查点匹配失败".to_owned()));
+        }
     }
 
     debug!(topic_agg, "开始读取事件流数据");
@@ -67,9 +80,9 @@ where
 pub(crate) async fn restore(
     topic: &'static str,
     latest: i64,
-) -> Result<AHashMap<Uuid, AHashSet<[u8; 16]>>, UniError> {
+) -> Result<AHashMap<Uuid, (u64, AHashSet<[u8; 16]>)>, UniError> {
     debug!(topic, "开始恢复最近 {latest} 分钟的命令操作记录");
-    let mut agg_coms: AHashMap<Uuid, AHashSet<[u8; 16]>> = AHashMap::new();
+    let mut agg_coms: AHashMap<Uuid, (u64, AHashSet<[u8; 16]>)> = AHashMap::new();
     let mut tpl = TopicPartitionList::new();
     let mut watermarks = AHashMap::new();
 
@@ -149,16 +162,18 @@ pub(crate) async fn restore(
             Some(Ok(msg)) => {
                 let agg_id = crate::get_agg_key(&msg)?;
                 let headers = msg.headers().ok_or("消息头不存在")?;
-                let com_id = crate::get_com_id(headers)?;
                 let res = crate::get_response(headers)?;
 
                 if res == UniResponse::Success {
-                    if let Some(coms) = agg_coms.get_mut(&agg_id) {
+                    let com_id = crate::get_com_id(headers)?;
+                    let revision = crate::get_revision(headers)?;
+                    if let Some((cp, coms)) = agg_coms.get_mut(&agg_id) {
+                        *cp = revision;
                         coms.insert(com_id);
                     } else {
                         let mut coms = AHashSet::new();
                         coms.insert(com_id);
-                        agg_coms.insert(agg_id, coms);
+                        agg_coms.insert(agg_id, (revision, coms));
                     }
                 }
 

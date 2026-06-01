@@ -82,6 +82,7 @@ impl CommandEnum for TransactionCommand {
         self,
         topic: &'static str,
         agg_id: Uuid,
+        checkpoint: u64,
         mut agg: Self::A,
         coms: &mut ahash::AHashSet<[u8; 16]>,
         loader: impl Load<Self::E>,
@@ -96,37 +97,37 @@ impl CommandEnum for TransactionCommand {
                 Ok((agg, TransactionEvent::PeriodOpened(evt)))
             }
             TransactionCommand::SetLimit(com) => {
-                replay(topic, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, checkpoint, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::LimitSetted(evt)))
             }
             TransactionCommand::ChangeLimit(com) => {
-                replay(topic, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, checkpoint, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::LimitChanged(evt)))
             }
             TransactionCommand::SetTransLimit(com) => {
-                replay(topic, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, checkpoint, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::TransLimitSetted(evt)))
             }
             TransactionCommand::Deposit(com) => {
-                replay(topic, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, checkpoint, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::DepositFinished(evt)))
             }
             TransactionCommand::Withdraw(com) => {
-                replay(topic, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, checkpoint, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::WithdrawFinished(evt)))
             }
             TransactionCommand::TransferOut(com) => {
-                replay(topic, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, checkpoint, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::TransferOutFinished(evt)))
             }
             TransactionCommand::TransferIn(com) => {
-                replay(topic, agg_id, &mut agg, coms, loader).await?;
+                replay(topic, agg_id, checkpoint, &mut agg, coms, loader).await?;
                 let evt = com.process(&mut agg)?;
                 Ok((agg, TransactionEvent::TransferInFinished(evt)))
             }

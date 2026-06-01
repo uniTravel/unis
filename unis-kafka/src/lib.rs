@@ -58,6 +58,7 @@ fn get_span_id(headers: &BorrowedHeaders) -> Result<[u8; 8], UniError> {
         .map_err(|e| format!("提取'span_id'失败：{e}"))?)
 }
 
+#[inline(always)]
 fn get_trace_flags(headers: &BorrowedHeaders) -> Result<u8, UniError> {
     Ok(headers
         .iter()
@@ -65,6 +66,19 @@ fn get_trace_flags(headers: &BorrowedHeaders) -> Result<u8, UniError> {
         .ok_or("键为'trace_flags'的消息头不存在")?
         .value
         .ok_or("键'trace_flags'对应的值为空")?[0])
+}
+
+#[inline(always)]
+fn get_revision(headers: &BorrowedHeaders) -> Result<u64, UniError> {
+    let bytes = headers
+        .iter()
+        .find(|h| h.key == "revision")
+        .ok_or("键为'revision'的消息头不存在")?
+        .value
+        .ok_or("键'revision'对应的值为空")?
+        .try_into()
+        .map_err(|e| format!("提取'revision'失败：{e}"))?;
+    Ok(u64::from_be_bytes(bytes))
 }
 
 #[inline(always)]

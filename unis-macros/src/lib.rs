@@ -85,11 +85,15 @@ pub fn aggregate(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     #(#field_names: Default::default(),)*
                 }
             }
+            #[inline(always)]
             fn next(&mut self) {
                 self.revision = self.revision.wrapping_add(1);
             }
+            #[inline(always)]
             fn id(&self) -> ::uuid::Uuid { self.id }
+            #[inline(always)]
             fn revision(&self) -> u64 { self.revision }
+            #[inline(always)]
             fn type_name() -> &'static str {
                 static NAME: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
                     std::any::type_name::<#struct_name>().replace("::", ".")
@@ -189,13 +193,14 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
         async fn replay(
             topic: &'static str,
             agg_id: ::uuid::Uuid,
+            checkpoint: u64,
             agg: &mut #agg_name,
             coms: &mut ::ahash::AHashSet<[u8; 16]>,
             loader: impl ::unis::domain::Load<#enum_name>,
         ) -> Result<(), ::unis::errors::UniError>
         {
             if agg.revision == u64::MAX {
-                for (com_id, evt) in loader.load(topic, agg_id).await? {
+                for (com_id, evt) in loader.load(topic, agg_id, checkpoint).await? {
                     coms.insert(com_id);
                     match evt {
                         #(#match_arms,)*

@@ -64,7 +64,7 @@ impl subscriber::Stream for Writer {
             .payload(evt_data)
             .key(agg_id.as_bytes())
             .headers(
-                OwnedHeaders::new_with_capacity(3)
+                OwnedHeaders::new_with_capacity(4)
                     .insert(Header {
                         key: "com_id",
                         value: Some(com_id),
@@ -72,6 +72,10 @@ impl subscriber::Stream for Writer {
                     .insert(Header {
                         key: "span_id",
                         value: Some(span_id),
+                    })
+                    .insert(Header {
+                        key: "revision",
+                        value: Some(&revision.to_be_bytes()),
                     })
                     .insert(Header {
                         key: "response",
@@ -107,7 +111,7 @@ impl subscriber::Stream for Writer {
             .payload(evt_data)
             .key(agg_id.as_bytes())
             .headers(
-                OwnedHeaders::new_with_capacity(3)
+                OwnedHeaders::new_with_capacity(4)
                     .insert(Header {
                         key: "com_id",
                         value: Some(com_id),
@@ -115,6 +119,10 @@ impl subscriber::Stream for Writer {
                     .insert(Header {
                         key: "span_id",
                         value: Some(span_id),
+                    })
+                    .insert(Header {
+                        key: "revision",
+                        value: Some(&u64::MAX.to_be_bytes()),
                     })
                     .insert(Header {
                         key: "response",

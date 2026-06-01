@@ -35,11 +35,14 @@ async fn restore_with_coms(#[future(awt)] _init: (), ctx: &'static Context) {
     let com_id = com_id.as_bytes();
     let span_id = Uuid::new_v4();
     let span_id = span_id.as_bytes()[..8].try_into().unwrap();
-    let result = stream.write(topic, agg_id, com_id, span_id, 0, &[]).await;
+    let result = stream.write(topic, agg_id, com_id, span_id, 3, &[]).await;
     assert!(result.is_ok());
 
     let agg_coms = reader::restore(topic, 1).await.unwrap();
+    let (revision, coms) = agg_coms.get(&agg_id).unwrap();
 
     assert!(agg_coms.len() >= 1);
+    assert!(*revision == 3);
+    assert!(coms.len() == 1);
     ctx.teardown().await;
 }
