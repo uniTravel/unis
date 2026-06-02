@@ -80,17 +80,17 @@ where
     /// 启动聚合器
     pub async fn launch(
         topic: &'static str,
-        cfg: SubscribeConfig,
+        cfg: &SubscribeConfig,
         loader: impl Load<E> + Sync,
         stream: Arc<impl Stream>,
         restore: impl Restore,
         mut rx: UnboundedReceiver<Com<C>>,
         ready: Arc<Notify>,
     ) {
-        let latest = cfg.latest;
+        let latest = cfg.retain.try_into().expect("缓存保留时长数据转换错误");
         let mut caches: AHashMap<Uuid, (UnboundedSender<Com<C>>, Instant)> = AHashMap::new();
         let start = Instant::now();
-        let mut interval = time::interval_at(start, Duration::from_secs(cfg.interval));
+        let mut interval = time::interval_at(start, Duration::from_mins(cfg.interval));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         match restore.restore(topic, latest).await {
@@ -113,7 +113,7 @@ where
                 panic!("恢复聚合命令操作记录失败：{e}");
             }
         }
-        info!(topic, "成功恢复最近 {latest} 分钟的聚合命令操作记录");
+        info!(topic, "成功恢复最近 {latest} 小时的聚合命令操作记录");
         info!(topic, "聚合器准备就绪");
 
         ready.notify_one();
@@ -125,14 +125,14 @@ where
                         len if len <= cfg.low => (),
                         len if len > cfg.high => {
                             let mut retain = cfg.retain;
-                            caches.retain(|_, (_, t)| t.elapsed() < Duration::from_secs(retain));
+                            caches.retain(|_, (_, t)| t.elapsed() < Duration::from_hours(retain));
                             while caches.len() > cfg.high {
                                 retain = retain / 2;
-                                caches.retain(|_, (_, t)| t.elapsed() < Duration::from_secs(retain));
+                                caches.retain(|_, (_, t)| t.elapsed() < Duration::from_hours(retain));
                             }
                         },
                         _ => {
-                            caches.retain(|_, (_, t)| t.elapsed() < Duration::from_secs(cfg.retain));
+                            caches.retain(|_, (_, t)| t.elapsed() < Duration::from_hours(cfg.retain));
                         }
                     }
                 }

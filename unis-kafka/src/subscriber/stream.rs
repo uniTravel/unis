@@ -1,4 +1,6 @@
-use super::{SUBSCRIBER_CONFIG, TopicTask, topic::topic_tx};
+use crate::config::SubscriberConfig;
+
+use super::{TopicTask, topic::topic_tx};
 use rdkafka::{
     ClientConfig,
     message::{Header, OwnedHeaders},
@@ -7,21 +9,21 @@ use rdkafka::{
 use std::sync::{Arc, LazyLock};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info};
-use unis::{config::SubscribeConfig, errors::UniError, subscriber};
+use unis::{config::SubscribeConfig, domain::Config, errors::UniError, subscriber};
 use uuid::Uuid;
 
 static SHARED_TP: LazyLock<Arc<FutureProducer>> = LazyLock::new(|| {
     let mut config = ClientConfig::new();
-    config.set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap);
+    config.set("bootstrap.servers", &SubscriberConfig::get().bootstrap);
     Arc::new(config.create().expect("共享的聚合类型生产者创建失败"))
 });
 
 static TP_CONFIG: LazyLock<ClientConfig> = LazyLock::new(|| {
     let mut config = ClientConfig::new();
-    for (key, value) in &SUBSCRIBER_CONFIG.tp {
+    for (key, value) in &SubscriberConfig::get().tp.clone() {
         config.set(key, value);
     }
-    config.set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap);
+    config.set("bootstrap.servers", &SubscriberConfig::get().bootstrap);
     config
 });
 
@@ -84,7 +86,7 @@ impl subscriber::Stream for Writer {
             );
 
         self.producer
-            .send(record, SUBSCRIBER_CONFIG.timeout)
+            .send(record, SubscriberConfig::get().timeout)
             .await
             .map_err(|(e, _)| UniError::WriteError(e.to_string()))
             .map(
@@ -131,7 +133,7 @@ impl subscriber::Stream for Writer {
             );
 
         self.producer
-            .send(record, SUBSCRIBER_CONFIG.timeout)
+            .send(record, SubscriberConfig::get().timeout)
             .await
             .map_err(|(e, _)| UniError::WriteError(e.to_string()))
             .map(

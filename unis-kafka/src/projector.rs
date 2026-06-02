@@ -30,8 +30,6 @@ use uuid::Uuid;
 pub use unis::app::context;
 pub use unis::domain::Aggregate;
 
-static PROJECTOR_CONFIG: LazyLock<ProjectorConfig> = LazyLock::new(|| ProjectorConfig::get());
-
 /// 聚合主题特征
 pub trait Topic: 'static {
     /// 获取聚合类型主题
@@ -53,7 +51,7 @@ where
 
         &CACHE.entry(type_id).or_insert_with(|| {
             let agg_type = A::type_name();
-            let topic = format!("{}.{}", PROJECTOR_CONFIG.name, agg_type);
+            let topic = format!("{}.{}", ProjectorConfig::get().name, agg_type);
             Box::leak(Box::new(topic))
         })
     }
@@ -70,14 +68,15 @@ enum ProjectError {
 }
 
 fn create_producer() -> Result<FutureProducer, KafkaError> {
-    let transaction_id = format!("{}-{}", PROJECTOR_CONFIG.name, PROJECTOR_CONFIG.hostname);
+    let cfg_projector = ProjectorConfig::get();
+    let transaction_id = format!("{}-{}", cfg_projector.name, cfg_projector.hostname);
     let mut config = ClientConfig::new();
-    for (key, value) in &PROJECTOR_CONFIG.pp {
+    for (key, value) in cfg_projector.pp.clone() {
         config.set(key, value);
     }
 
     let ap: FutureProducer = config
-        .set("bootstrap.servers", &PROJECTOR_CONFIG.bootstrap)
+        .set("bootstrap.servers", &cfg_projector.bootstrap)
         .set("transactional.id", transaction_id)
         .create()?;
     ap.init_transactions(std::time::Duration::from_secs(30))?;
@@ -85,13 +84,14 @@ fn create_producer() -> Result<FutureProducer, KafkaError> {
 }
 
 fn create_consumer() -> Result<StreamConsumer, KafkaError> {
+    let cfg_projector = ProjectorConfig::get();
     let mut config = ClientConfig::new();
-    for (key, value) in &PROJECTOR_CONFIG.pc {
+    for (key, value) in cfg_projector.pc.clone() {
         config.set(key, value);
     }
     config
-        .set("bootstrap.servers", &PROJECTOR_CONFIG.bootstrap)
-        .set("group.id", &PROJECTOR_CONFIG.name)
+        .set("bootstrap.servers", &cfg_projector.bootstrap)
+        .set("group.id", &cfg_projector.name)
         .create()
 }
 
@@ -99,6 +99,7 @@ static INITIATED: AtomicBool = AtomicBool::new(false);
 
 /// 启动投影
 pub async fn launch(ctx: &'static unis::app::Context, topics: Vec<&'static str>) {
+    let cfg_projector = ProjectorConfig::get();
     if INITIATED
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
         .is_ok()
@@ -121,11 +122,11 @@ pub async fn launch(ctx: &'static unis::app::Context, topics: Vec<&'static str>)
                     }
                 }
                 count += 1;
-                if count == PROJECTOR_CONFIG.tries {
+                if count == cfg_projector.tries {
                     error!("尝试 {count} 次仍然失败，退出应用！");
                     break;
                 }
-                sleep(Duration::from_secs(PROJECTOR_CONFIG.secs)).await;
+                sleep(Duration::from_secs(cfg_projector.secs)).await;
             }
         })
         .await;
@@ -141,9 +142,10 @@ async fn process(
     ready: Arc<Notify>,
     notify: Arc<Notify>,
 ) -> Result<(), ProjectError> {
+    let cfg_projector = ProjectorConfig::get();
     tc.subscribe(topics)?;
-    let mut agg_msgs = AHashMap::with_capacity(PROJECTOR_CONFIG.partitions);
-    let mut offsets = AHashMap::with_capacity(PROJECTOR_CONFIG.capacity);
+    let mut agg_msgs = AHashMap::with_capacity(cfg_projector.partitions);
+    let mut offsets = AHashMap::with_capacity(cfg_projector.capacity);
     let mut last_flush = Instant::now();
     let mut interval = tokio::time::interval(Duration::from_millis(1));
     let mut count: usize = 0;
@@ -163,7 +165,7 @@ async fn process(
                 break Ok(());
             }
             _ = interval.tick() => {
-                if !agg_msgs.is_empty() && last_flush.elapsed() > Duration::from_millis(PROJECTOR_CONFIG.interval) {
+                if !agg_msgs.is_empty() && last_flush.elapsed() > Duration::from_millis(cfg_projector.interval) {
                     process_batch(ap, tc, &mut agg_msgs, &mut offsets, "触及提交间隔阈值").await?;
                     last_flush = Instant::now();
                     count = 0;
@@ -183,7 +185,7 @@ async fn process(
                         match agg_msgs.get_mut(&topic) {
                             Some(msgs) => msgs.push((com_id, span_id, payload)),
                             None => {
-                                if agg_msgs.len() == PROJECTOR_CONFIG.partitions {
+                                if agg_msgs.len() == cfg_projector.partitions {
                                     process_batch(ap, tc, &mut agg_msgs, &mut offsets, "触及分区数阈值").await?;
                                     last_flush = Instant::now();
                                     count = 0;
@@ -201,7 +203,7 @@ async fn process(
                         }
 
                         count += 1;
-                        if count == PROJECTOR_CONFIG.capacity {
+                        if count == cfg_projector.capacity {
                             process_batch(ap, tc, &mut agg_msgs, &mut offsets, "触及提交计数阈值").await?;
                             last_flush = Instant::now();
                             count = 0;

@@ -5,7 +5,7 @@
 use config::{Config, Environment, File};
 use serde::{Deserialize, de::DeserializeOwned};
 use std::{collections::HashMap, fmt::Debug, path::PathBuf};
-use validator::{Validate, ValidationError};
+use validator::Validate;
 
 /// 命名配置结构
 #[derive(Debug, Clone)]
@@ -18,8 +18,8 @@ where
     T: DeserializeOwned + Validate + Clone + Send + Sync + Default + 'static,
 {
     /// 获取命名配置
-    pub fn get(&self, name: &str) -> T {
-        self.configs.get(name).cloned().unwrap_or_default()
+    pub fn get(&'static self, name: &str) -> &'static T {
+        self.configs.get(name).expect("命名配置不存在")
     }
 }
 
@@ -58,6 +58,35 @@ pub fn build_config() -> Config {
         Ok(c) => c,
         Err(e) => {
             panic!("加载配置失败：{e}");
+        }
+    }
+}
+
+/// 加载产品名称
+pub fn load_name(cfg: &::config::Config) -> String {
+    match cfg.get::<String>("name") {
+        Ok(c) => {
+            let len = c.chars().count();
+            if len < 2 || len > 10 {
+                panic!("长度应介于 2 到 10 之间");
+            }
+            if !c.chars().all(|c| c.is_ascii_alphabetic()) {
+                panic!("应为 ASCII 字母");
+            }
+            c
+        }
+        Err(e) => {
+            panic!("加载'name'配置失败：{e}");
+        }
+    }
+}
+
+/// 加载 Hostname
+pub fn load_hostname(cfg: &::config::Config) -> String {
+    match cfg.get("hostname") {
+        Ok(c) => c,
+        Err(e) => {
+            panic!("加载'hostname'配置失败：{e}");
         }
     }
 }
@@ -106,60 +135,30 @@ pub fn load_named_setting(
     result
 }
 
-fn validate_key(key: &str) -> Result<(), ValidationError> {
-    let len = key.chars().count();
-    if len < 2 || len > 10 {
-        return Err(
-            ValidationError::new("cfg_key_length").with_message("长度应介于 2 到 10 之间".into())
-        );
-    }
-
-    if !key.chars().all(|c| c.is_ascii_alphabetic()) {
-        return Err(ValidationError::new("cfg_key").with_message("应为 ASCII 字母".into()));
-    }
-
-    Ok(())
-}
-
 /// 订阅者聚合配置结构
 #[derive(Debug, Deserialize, Validate, Clone)]
 #[serde(default)]
 pub struct SubscribeConfig {
-    /// 配置键
-    #[validate(custom(function = "validate_key"))]
-    pub key: String,
     /// 是否热点
     pub hotspot: bool,
-    /// 缓存刷新间隔， 单位秒
+    /// 缓存刷新间隔， 单位分钟
     pub interval: u64,
     /// 缓存容量下限
     pub low: usize,
     /// 缓存容量上限
     pub high: usize,
-    /// 缓存保留时长，单位秒
+    /// 缓存保留时长，单位小时
     pub retain: u64,
-    /// 恢复最近命令操作记录的时长，单位分钟
-    #[validate(range(min = 2, max = 120, message = "分钟时长应介于 2 到 120 之间"))]
-    pub latest: i64,
-    /// 信号量
-    #[validate(range(min = 7, message = "信号量至少为 7"))]
-    pub sems: usize,
-    /// 缓冲容量
-    pub bufs: usize,
 }
 
 impl Default for SubscribeConfig {
     fn default() -> Self {
         Self {
-            key: String::default(),
             hotspot: false,
-            interval: 30 * 60,
+            interval: 30,
             low: 200,
             high: 20000,
-            retain: 2 * 24 * 60 * 60,
-            latest: 30,
-            sems: 100,
-            bufs: 1024,
+            retain: 2 * 24,
         }
     }
 }
@@ -168,31 +167,20 @@ impl Default for SubscribeConfig {
 #[derive(Debug, Deserialize, Validate, Clone)]
 #[serde(default)]
 pub struct SendConfig {
-    /// 配置键
-    #[validate(custom(function = "validate_key"))]
-    pub key: String,
     /// 是否热点
     pub hotspot: bool,
-    /// 缓存刷新间隔， 单位秒
+    /// 缓存刷新间隔， 单位分钟
     pub interval: u64,
-    /// 缓存保留时长，单位秒
+    /// 缓存保留时长，单位分钟
     pub retain: u64,
-    /// 信号量
-    #[validate(range(min = 7, message = "信号量至少为 7"))]
-    pub sems: usize,
-    /// 缓冲容量
-    pub bufs: usize,
 }
 
 impl Default for SendConfig {
     fn default() -> Self {
         Self {
-            key: String::default(),
             hotspot: false,
             interval: 5,
             retain: 30,
-            sems: 100,
-            bufs: 1024,
         }
     }
 }

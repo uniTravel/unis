@@ -1,40 +1,10 @@
-#![allow(dead_code)]
-
-use std::{
-    collections::HashMap,
-    sync::{OnceLock, RwLock},
-};
+use std::{collections::HashMap, sync::LazyLock};
 use tokio::time::Duration;
 use unis::{
-    config::{self, NamedConfig, SendConfig, SubscribeConfig},
+    config::{self, NamedConfig, SendConfig, SubscribeConfig, load_hostname, load_name},
     domain,
 };
 
-static SUBSCRIBER: OnceLock<RwLock<SubscriberConfig>> = OnceLock::new();
-static PROJECTOR: OnceLock<RwLock<ProjectorConfig>> = OnceLock::new();
-static SENDER: OnceLock<RwLock<SenderConfig>> = OnceLock::new();
-
-#[inline]
-fn load_name(cfg: &::config::Config) -> String {
-    match cfg.get("name") {
-        Ok(c) => c,
-        Err(e) => {
-            panic!("加载'name'配置失败：{e}");
-        }
-    }
-}
-
-#[inline]
-fn load_hostname(cfg: &::config::Config) -> String {
-    match cfg.get("hostname") {
-        Ok(c) => c,
-        Err(e) => {
-            panic!("加载'hostname'配置失败：{e}");
-        }
-    }
-}
-
-#[inline]
 fn load_bootstrap(cfg: &::config::Config) -> String {
     match cfg.get("bootstrap") {
         Ok(c) => c,
@@ -44,7 +14,6 @@ fn load_bootstrap(cfg: &::config::Config) -> String {
     }
 }
 
-#[inline]
 fn load_timeout(cfg: &::config::Config) -> Duration {
     match cfg.get("timeout") {
         Ok(t) => Duration::from_secs(t),
@@ -54,6 +23,7 @@ fn load_timeout(cfg: &::config::Config) -> Duration {
 
 fn load_subscriber() -> SubscriberConfig {
     let cfg = config::build_config();
+    let name = load_name(&cfg);
     let bootstrap = load_bootstrap(&cfg);
     let replicas = cfg.get("replicas").unwrap_or(3);
     let aggs = cfg.get("aggs").unwrap_or(16);
@@ -66,7 +36,14 @@ fn load_subscriber() -> SubscriberConfig {
             panic!("加载聚合类型生产者配置失败：{e}");
         }
     };
+    let admin = match cfg.get::<HashMap<String, String>>("admin") {
+        Ok(c) => c,
+        Err(e) => {
+            panic!("加载主题管理客户端配置失败：{e}");
+        }
+    };
     SubscriberConfig {
+        name,
         bootstrap,
         replicas,
         aggs,
@@ -74,14 +51,15 @@ fn load_subscriber() -> SubscriberConfig {
         subscriber,
         cc,
         tp,
+        admin,
     }
 }
 
 fn load_projector() -> ProjectorConfig {
     let cfg = config::build_config();
     let name = load_name(&cfg);
-    let bootstrap = load_bootstrap(&cfg);
     let hostname = load_hostname(&cfg);
+    let bootstrap = load_bootstrap(&cfg);
     let capacity = cfg.get("capacity").unwrap_or(100);
     let partitions = cfg.get("partitions").unwrap_or(10);
     let interval = cfg.get("interval").unwrap_or(50);
@@ -101,8 +79,8 @@ fn load_projector() -> ProjectorConfig {
     };
     ProjectorConfig {
         name,
-        bootstrap,
         hostname,
+        bootstrap,
         capacity,
         partitions,
         interval,
@@ -115,8 +93,9 @@ fn load_projector() -> ProjectorConfig {
 
 fn load_sender() -> SenderConfig {
     let cfg = config::build_config();
-    let bootstrap = load_bootstrap(&cfg);
+    let name = load_name(&cfg);
     let hostname = load_hostname(&cfg);
+    let bootstrap = load_bootstrap(&cfg);
     let timeout = load_timeout(&cfg);
     let sender = config::load_named_config(&cfg, "sender");
     let tc = config::load_named_setting(&cfg, "tc");
@@ -127,8 +106,9 @@ fn load_sender() -> SenderConfig {
         }
     };
     SenderConfig {
-        bootstrap,
+        name,
         hostname,
+        bootstrap,
         timeout,
         sender,
         tc,
@@ -138,6 +118,7 @@ fn load_sender() -> SenderConfig {
 
 #[derive(Debug, Clone)]
 pub struct SubscriberConfig {
+    pub name: String,
     pub bootstrap: String,
     pub replicas: i32,
     pub aggs: usize,
@@ -145,43 +126,28 @@ pub struct SubscriberConfig {
     pub subscriber: NamedConfig<SubscribeConfig>,
     pub cc: HashMap<String, HashMap<String, String>>,
     pub tp: HashMap<String, String>,
+    pub admin: HashMap<String, String>,
 }
 
+static SUBSCRIBER: LazyLock<SubscriberConfig> = LazyLock::new(|| load_subscriber());
+
 impl domain::Config for SubscriberConfig {
-    fn get() -> Self {
-        match SUBSCRIBER
-            .get_or_init(|| RwLock::new(load_subscriber()))
-            .read()
-        {
-            Ok(cfg) => cfg.clone(),
-            Err(e) => {
-                panic!("获取订阅者配置失败：{e}");
-            }
-        }
+    #[inline(always)]
+    fn get() -> &'static Self {
+        &SUBSCRIBER
     }
 
-    fn reload() {
-        let cfg = match SUBSCRIBER.get() {
-            Some(c) => c,
-            None => {
-                panic!("订阅者配置未初始化");
-            }
-        };
-        let mut cell = match cfg.write() {
-            Ok(c) => c,
-            Err(e) => {
-                panic!("订阅者配置重新加载失败：{e}");
-            }
-        };
-        *cell = load_subscriber();
+    #[inline(always)]
+    fn name() -> &'static str {
+        &SUBSCRIBER.name
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ProjectorConfig {
     pub name: String,
-    pub bootstrap: String,
     pub hostname: String,
+    pub bootstrap: String,
     pub capacity: usize,
     pub partitions: usize,
     pub interval: u64,
@@ -191,69 +157,41 @@ pub struct ProjectorConfig {
     pub pp: HashMap<String, String>,
 }
 
+static PROJECTOR: LazyLock<ProjectorConfig> = LazyLock::new(|| load_projector());
+
 impl domain::Config for ProjectorConfig {
-    fn get() -> Self {
-        match PROJECTOR
-            .get_or_init(|| RwLock::new(load_projector()))
-            .read()
-        {
-            Ok(cfg) => cfg.clone(),
-            Err(e) => {
-                panic!("获取投影者配置失败：{e}");
-            }
-        }
+    #[inline(always)]
+    fn get() -> &'static Self {
+        &PROJECTOR
     }
 
-    fn reload() {
-        let cfg = match PROJECTOR.get() {
-            Some(c) => c,
-            None => {
-                panic!("投影者配置未初始化");
-            }
-        };
-        let mut cell = match cfg.write() {
-            Ok(c) => c,
-            Err(e) => {
-                panic!("投影者配置重新加载失败：{e}");
-            }
-        };
-        *cell = load_projector();
+    #[inline(always)]
+    fn name() -> &'static str {
+        &PROJECTOR.name
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct SenderConfig {
-    pub bootstrap: String,
+    pub name: String,
     pub hostname: String,
+    pub bootstrap: String,
     pub timeout: Duration,
     pub sender: NamedConfig<SendConfig>,
     pub tc: HashMap<String, HashMap<String, String>>,
     pub cp: HashMap<String, String>,
 }
 
+static SENDER: LazyLock<SenderConfig> = LazyLock::new(|| load_sender());
+
 impl domain::Config for SenderConfig {
-    fn get() -> Self {
-        match SENDER.get_or_init(|| RwLock::new(load_sender())).read() {
-            Ok(cfg) => cfg.clone(),
-            Err(e) => {
-                panic!("获取发送者配置失败：{e}");
-            }
-        }
+    #[inline(always)]
+    fn get() -> &'static Self {
+        &SENDER
     }
 
-    fn reload() {
-        let cfg = match SENDER.get() {
-            Some(c) => c,
-            None => {
-                panic!("发送者配置未初始化");
-            }
-        };
-        let mut cell = match cfg.write() {
-            Ok(c) => c,
-            Err(e) => {
-                panic!("发送者配置重新加载失败：{e}");
-            }
-        };
-        *cell = load_sender();
+    #[inline(always)]
+    fn name() -> &'static str {
+        &SENDER.name
     }
 }

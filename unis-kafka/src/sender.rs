@@ -39,20 +39,18 @@ use unis::{
 };
 use uuid::Uuid;
 
-static SENDER_CONFIG: LazyLock<SenderConfig> = LazyLock::new(|| SenderConfig::get());
-
 static SHARED_CP: LazyLock<Arc<FutureProducer>> = LazyLock::new(|| {
     let mut config = ClientConfig::new();
-    config.set("bootstrap.servers", &SENDER_CONFIG.bootstrap);
+    config.set("bootstrap.servers", &SenderConfig::get().bootstrap);
     Arc::new(config.create().expect("共享的聚合命令生产者创建失败"))
 });
 
 static CP_CONFIG: LazyLock<ClientConfig> = LazyLock::new(|| {
     let mut config = ClientConfig::new();
-    for (key, value) in &SENDER_CONFIG.cp {
+    for (key, value) in SenderConfig::get().cp.clone() {
         config.set(key, value);
     }
-    config.set("bootstrap.servers", &SENDER_CONFIG.bootstrap);
+    config.set("bootstrap.servers", &SenderConfig::get().bootstrap);
     config
 });
 
@@ -76,9 +74,8 @@ where
 
         &CACHE.entry(type_id).or_insert_with(|| {
             let agg_type = A::type_name();
-            let cfg_name = agg_type.rsplit(".").next().unwrap();
-            let cfg = SENDER_CONFIG.sender.get(cfg_name);
-            let topic = format!("{}.{}", cfg.key, agg_type);
+            let cfg = SenderConfig::get();
+            let topic = format!("{}.{}", cfg.name, agg_type);
             Box::leak(Box::new(topic))
         })
     }
@@ -131,14 +128,15 @@ where
     }
 
     async fn new(ctx: &'static unis::app::Context) -> Result<Self, String> {
+        let cfg_sender = SenderConfig::get();
         let agg_type = A::type_name();
         let topic = A::topic();
         let cfg_name = agg_type.rsplit(".").next().ok_or("获取聚合名称失败")?;
-        let settings = SENDER_CONFIG
+        let settings = cfg_sender
             .tc
             .get(cfg_name)
             .ok_or("获取发送者消费配置失败")?;
-        let cfg = SENDER_CONFIG.sender.get(cfg_name);
+        let cfg = cfg_sender.sender.get(cfg_name);
         let producer = match cfg.hotspot {
             true => Arc::new(
                 CP_CONFIG
@@ -153,8 +151,8 @@ where
         for (key, value) in settings {
             config.set(key, value);
         }
-        config.set("bootstrap.servers", &SENDER_CONFIG.bootstrap);
-        config.set("group.id", format!("{topic}-{}", SENDER_CONFIG.hostname));
+        config.set("bootstrap.servers", &cfg_sender.bootstrap);
+        config.set("group.id", format!("{topic}-{}", cfg_sender.hostname));
         let tc: Arc<StreamConsumer> = Arc::new(
             config
                 .create()
@@ -188,7 +186,7 @@ where
 {
     async fn respond(
         producer: Arc<FutureProducer>,
-        cfg: SendConfig,
+        cfg: &SendConfig,
         mut rx: mpsc::UnboundedReceiver<Todo<A, C, E>>,
         ready: Arc<Notify>,
         notify: Arc<Notify>,
@@ -208,7 +206,7 @@ where
             >,
         > = Arc::new(DashMap::with_hasher(RandomState::new()));
         let start = Instant::now();
-        let mut interval = interval_at(start, Duration::from_secs(cfg.interval));
+        let mut interval = interval_at(start, Duration::from_mins(cfg.interval));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         let notified = notify.notified();
@@ -222,7 +220,7 @@ where
                     break;
                 }
                 _ = interval.tick() => {
-                    rs.retain(|_, (_, _, t)| t.elapsed() < Duration::from_secs(cfg.retain));
+                    rs.retain(|_, (_, _, t)| t.elapsed() < Duration::from_mins(cfg.retain));
                 }
                 data = rx.recv() => match data {
                     Some(Todo::Reply { agg_id, com_id, cx, com, res_tx }) => {
@@ -274,7 +272,7 @@ where
                                                             value: Some(&[trace_flags]),
                                                         }));
                                                 match producer
-                                                    .send(record, SENDER_CONFIG.timeout)
+                                                    .send(record, SenderConfig::get().timeout)
                                                     .await
                                                     .map_err(|(e, _)| UniError::SendError(e.to_string()))
                                                     .map(

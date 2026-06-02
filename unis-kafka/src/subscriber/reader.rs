@@ -1,4 +1,5 @@
-use super::{SUBSCRIBER_CONFIG, pool::ConsumerPool};
+use super::pool::ConsumerPool;
+use crate::config::SubscriberConfig;
 use ahash::{AHashMap, AHashSet};
 use rdkafka::{Message, Offset, TopicPartitionList, consumer::Consumer};
 use rkyv::{
@@ -8,7 +9,11 @@ use rkyv::{
 };
 use std::{sync::LazyLock, time::SystemTime};
 use tracing::{debug, error};
-use unis::{UniResponse, domain::EventEnum, errors::UniError};
+use unis::{
+    UniResponse,
+    domain::{Config, EventEnum},
+    errors::UniError,
+};
 use uuid::Uuid;
 
 static POOL: LazyLock<ConsumerPool> = LazyLock::new(|| ConsumerPool::new());
@@ -22,6 +27,7 @@ where
     E: EventEnum,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
+    let cfg_subscriber = SubscriberConfig::get();
     let topic_agg = super::topic_agg(topic, agg_id);
     let mut tpl = TopicPartitionList::new();
     tpl.add_partition_offset(&topic_agg, 0, rdkafka::Offset::Beginning)
@@ -33,7 +39,7 @@ where
         .map_err(|e| UniError::ReadError(e.to_string()))?;
 
     let (low, high) = consumer
-        .fetch_watermarks(&topic_agg, 0, SUBSCRIBER_CONFIG.timeout)
+        .fetch_watermarks(&topic_agg, 0, cfg_subscriber.timeout)
         .map_err(|e| UniError::ReadError(e.to_string()))?;
 
     if low == -1 || high == -1 {
@@ -52,7 +58,7 @@ where
     debug!(topic_agg, "开始读取事件流数据");
     let mut msgs = Vec::new();
     loop {
-        match consumer.poll(SUBSCRIBER_CONFIG.timeout) {
+        match consumer.poll(cfg_subscriber.timeout) {
             Some(Ok(msg)) => {
                 let payload = msg.payload().ok_or("消息体不存在")?;
                 let com_id = crate::get_com_key(&msg)?;
@@ -81,7 +87,8 @@ pub(crate) async fn restore(
     topic: &'static str,
     latest: i64,
 ) -> Result<AHashMap<Uuid, (u64, AHashSet<[u8; 16]>)>, UniError> {
-    debug!(topic, "开始恢复最近 {latest} 分钟的命令操作记录");
+    debug!(topic, "开始恢复最近 {latest} 小时的命令操作记录");
+    let cfg_subscriber = SubscriberConfig::get();
     let mut agg_coms: AHashMap<Uuid, (u64, AHashSet<[u8; 16]>)> = AHashMap::new();
     let mut tpl = TopicPartitionList::new();
     let mut watermarks = AHashMap::new();
@@ -90,13 +97,13 @@ pub(crate) async fn restore(
     let consumer = guard.into_inner();
 
     let metadata = consumer
-        .fetch_metadata(Some(topic), SUBSCRIBER_CONFIG.timeout)
+        .fetch_metadata(Some(topic), cfg_subscriber.timeout)
         .map_err(|e| UniError::ReadError(e.to_string()))?;
     let start_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_err(|e| UniError::ReadError(e.to_string()))?
         .as_millis() as i64
-        - (latest * 60 * 1000);
+        - (latest * 60 * 60 * 1000);
 
     for partition in metadata.topics()[0].partitions() {
         let pid = partition.id();
@@ -105,7 +112,7 @@ pub(crate) async fn restore(
             .add_partition_offset(topic, pid, Offset::Offset(start_time))
             .map_err(|e| UniError::ReadError(e.to_string()))?;
         let offset = if let Some(tp) = consumer
-            .offsets_for_times(seek_tpl, SUBSCRIBER_CONFIG.timeout)
+            .offsets_for_times(seek_tpl, cfg_subscriber.timeout)
             .map_err(|e| UniError::ReadError(e.to_string()))?
             .elements()
             .first()
@@ -144,7 +151,7 @@ pub(crate) async fn restore(
         tpl.add_partition_offset(topic, pid, offset)
             .map_err(|e| UniError::ReadError(e.to_string()))?;
         let (low, high) = consumer
-            .fetch_watermarks(topic, pid, SUBSCRIBER_CONFIG.timeout)
+            .fetch_watermarks(topic, pid, cfg_subscriber.timeout)
             .map_err(|e| UniError::ReadError(e.to_string()))?;
         debug!(topic, "分区 {pid} 水位：{low} ~ {high}");
         if offset != Offset::End {
@@ -158,7 +165,7 @@ pub(crate) async fn restore(
 
     debug!(topic, "开始读取事件流数据");
     while watermarks.len() > 0 {
-        match consumer.poll(SUBSCRIBER_CONFIG.timeout) {
+        match consumer.poll(cfg_subscriber.timeout) {
             Some(Ok(msg)) => {
                 let agg_id = crate::get_agg_key(&msg)?;
                 let headers = msg.headers().ok_or("消息头不存在")?;

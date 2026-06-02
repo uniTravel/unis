@@ -1,4 +1,3 @@
-use super::SUBSCRIBER_CONFIG;
 use crossbeam::queue::ArrayQueue;
 use rdkafka::{
     ClientConfig,
@@ -6,11 +5,13 @@ use rdkafka::{
 };
 use std::sync::{Arc, LazyLock};
 use tracing::debug;
-use unis::errors::UniError;
+use unis::{domain::Config, errors::UniError};
+
+use crate::config::SubscriberConfig;
 
 static CONFIG: LazyLock<ClientConfig> = LazyLock::new(|| {
     ClientConfig::new()
-        .set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap)
+        .set("bootstrap.servers", &SubscriberConfig::get().bootstrap)
         .set("group.id", "agg-reader")
         .set("auto.offset.reset", "earliest")
         .set("enable.auto.commit", "false")
@@ -24,9 +25,10 @@ pub(crate) struct ConsumerPool {
 
 impl ConsumerPool {
     pub(crate) fn new() -> Self {
-        let consumers = Arc::new(ArrayQueue::new(SUBSCRIBER_CONFIG.aggs));
+        let cfg_subscriber = SubscriberConfig::get();
+        let consumers = Arc::new(ArrayQueue::new(cfg_subscriber.aggs));
 
-        for _ in 0..SUBSCRIBER_CONFIG.aggs {
+        for _ in 0..cfg_subscriber.aggs {
             let consumer = CONFIG.create::<BaseConsumer>().expect("聚合消费者创建失败");
             let _ = consumers.push(consumer);
         }

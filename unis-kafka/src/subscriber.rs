@@ -31,7 +31,7 @@ use std::{
 };
 use stream::Writer;
 use tokio::sync::{Notify, mpsc};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use unis::{
     Com,
     aggregator::Aggregator,
@@ -41,8 +41,6 @@ use unis::{errors::UniError, subscriber::Subscriber};
 use uuid::Uuid;
 
 pub use unis::app::context;
-
-static SUBSCRIBER_CONFIG: LazyLock<SubscriberConfig> = LazyLock::new(|| SubscriberConfig::get());
 
 trait Topic: 'static {
     fn topic() -> &'static str;
@@ -64,9 +62,8 @@ where
 
         &CACHE.entry(type_id).or_insert_with(|| {
             let agg_type = A::type_name();
-            let cfg_name = agg_type.rsplit(".").next().unwrap();
-            let cfg = SUBSCRIBER_CONFIG.subscriber.get(cfg_name);
-            let topic = format!("{}.{}", cfg.key, agg_type);
+            let cfg = SubscriberConfig::get();
+            let topic = format!("{}.{}", cfg.name, agg_type);
             Box::leak(Box::new(topic))
         })
     }
@@ -122,20 +119,27 @@ where
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
     async fn launch(ctx: &'static unis::app::Context) -> Result<(), String> {
+        let cfg_subscriber = SubscriberConfig::get();
         let agg_type = A::type_name();
         let topic = A::topic();
         let cfg_name = agg_type.rsplit(".").next().ok_or("获取聚合名称失败")?;
-        let settings = SUBSCRIBER_CONFIG
+        let settings = cfg_subscriber
             .cc
             .get(cfg_name)
             .ok_or("获取订阅者消费配置失败")?;
-        let cfg = SUBSCRIBER_CONFIG.subscriber.get(cfg_name);
+        let cfg = cfg_subscriber.subscriber.get(cfg_name);
+        if cfg.retain < 4 {
+            warn!(
+                topic,
+                "缓存保留时长不足 4 小时，请确认投影延迟不会超过该时长"
+            );
+        }
         let topic_com = A::topic_com();
         let mut config = ClientConfig::new();
         for (key, value) in settings {
             config.set(key, value);
         }
-        config.set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap);
+        config.set("bootstrap.servers", &cfg_subscriber.bootstrap);
         config.set("group.id", topic_com);
         let cc: Arc<StreamConsumer> = Arc::new(
             config
@@ -147,7 +151,7 @@ where
         info!(topic, "成功订阅聚合命令流");
 
         let (tx, rx) = mpsc::unbounded_channel::<Com<C>>();
-        let stream = Arc::new(Writer::new(&cfg).await);
+        let stream = Arc::new(Writer::new(cfg).await);
         ctx.spawn(move |ready| {
             Aggregator::<A, C, E>::launch(
                 topic,

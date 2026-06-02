@@ -182,7 +182,7 @@ where
 /// 配置特征
 pub trait Config: Sized + 'static {
     /// 获取配置
-    fn get() -> Self;
-    /// 重载配置
-    fn reload();
+    fn get() -> &'static Self;
+    /// 获取产品名称
+    fn name() -> &'static str;
 }

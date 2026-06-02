@@ -1,13 +1,10 @@
+name = "bank"
 bootstrap = "localhost:30001,localhost:30002,localhost:30003"
 
 [subscriber.Account]
-key = "bank"
-sems = 50
 
 [subscriber.Transaction]
-key = "bank"
 hotspot = true
-sems = 300
 
 [cc.Account]
 "auto.offset.reset" = "earliest"
@@ -21,3 +18,5 @@ sems = 300
 
 [tp]
 "linger.ms" = "5"
+
+[admin]

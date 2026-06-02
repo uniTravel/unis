@@ -3,13 +3,9 @@ hostname = ""
 bootstrap = "localhost:30001,localhost:30002,localhost:30003"
 
 [subscriber.Account]
-key = "bank"
 hotspot = true
-sems = 300
 
 [sender.Account]
-key = "bank"
-sems = 50
 
 [cc.Account]
 "auto.offset.reset" = "earliest"
@@ -35,3 +31,5 @@ sems = 50
 
 [pp]
 "linger.ms" = "1"
+
+[admin]

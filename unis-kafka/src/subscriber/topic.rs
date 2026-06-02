@@ -1,4 +1,6 @@
-use super::{SUBSCRIBER_CONFIG, TopicTask};
+use crate::config::SubscriberConfig;
+
+use super::TopicTask;
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
@@ -10,12 +12,15 @@ use tokio::{
     time::{Duration, Instant},
 };
 use tracing::{debug, error, info};
+use unis::domain::Config;
 
 static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
-    ClientConfig::new()
-        .set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap)
-        .create()
-        .expect("管理客户端创建失败")
+    let mut config = ClientConfig::new();
+    config.set("bootstrap.servers", &SubscriberConfig::get().bootstrap);
+    for (key, value) in SubscriberConfig::get().admin.clone() {
+        config.set(key, value);
+    }
+    config.create().expect("管理客户端创建失败")
 });
 
 static OPTS: LazyLock<AdminOptions> = LazyLock::new(|| {
@@ -120,7 +125,7 @@ async fn topic_batch(batch: &mut Vec<String>) {
         let topic = NewTopic::new(
             &topic,
             1,
-            TopicReplication::Fixed(SUBSCRIBER_CONFIG.replicas),
+            TopicReplication::Fixed(SubscriberConfig::get().replicas),
         )
         .set("retention.ms", "-1");
         topics.push(topic);

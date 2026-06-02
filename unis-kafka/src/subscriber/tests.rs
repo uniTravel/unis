@@ -1,7 +1,9 @@
 mod restore_test;
 mod stream_test;
 
-use super::{SUBSCRIBER_CONFIG, stream::Writer};
+use crate::config::SubscriberConfig;
+
+use super::stream::Writer;
 use rdkafka::{
     ClientConfig,
     admin::{AdminClient, AdminOptions},
@@ -16,13 +18,16 @@ use tokio::{
 use tracing::{Level, info, warn};
 use tracing_appender::non_blocking;
 use tracing_subscriber::fmt;
-use unis::{app::Context, domain::Aggregate};
+use unis::{
+    app::Context,
+    domain::{Aggregate, Config},
+};
 use unis_utils::kube::{HelmRelease, KubeCluster};
 use uuid::Uuid;
 
 static ADMIN: LazyLock<AdminClient<DefaultClientContext>> = LazyLock::new(|| {
     ClientConfig::new()
-        .set("bootstrap.servers", &SUBSCRIBER_CONFIG.bootstrap)
+        .set("bootstrap.servers", &SubscriberConfig::get().bootstrap)
         .create()
         .expect("管理客户端创建失败")
 });
@@ -71,7 +76,7 @@ fn ctx() -> &'static Context {
 async fn stream() -> Writer {
     let agg_type = domain::Account::type_name();
     let cfg_name = agg_type.rsplit(".").next().expect("获取聚合名称失败");
-    let cfg = SUBSCRIBER_CONFIG.subscriber.get(cfg_name);
+    let cfg = SubscriberConfig::get().subscriber.get(cfg_name);
     Writer::new(&cfg).await
 }
 
