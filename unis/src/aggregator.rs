@@ -33,7 +33,7 @@ const EMPTY_BYTES: &[u8] = &[];
 impl<F, Fut> Restore for F
 where
     F: Fn(&'static str, i64) -> Fut + Send + 'static,
-    Fut: Future<Output = Result<AHashMap<Uuid, (u64, AHashSet<[u8; 16]>)>, UniError>> + Send,
+    Fut: Future<Output = Result<AHashMap<Uuid, ([u8; 8], AHashSet<[u8; 16]>)>, UniError>> + Send,
 {
     type Fut = Fut;
 
@@ -47,12 +47,12 @@ impl<E, F, Fut> Load<E> for F
 where
     E: EventEnum,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
-    F: Fn(&'static str, Uuid, u64) -> Fut + Send + Copy + 'static,
+    F: Fn(&'static str, Uuid, [u8; 8]) -> Fut + Send + Copy + 'static,
     Fut: Future<Output = Result<Vec<([u8; 16], E)>, UniError>> + Send,
 {
     type Fut = Fut;
 
-    fn load(&self, topic: &'static str, agg_id: Uuid, checkpoint: u64) -> Self::Fut {
+    fn load(&self, topic: &'static str, agg_id: Uuid, checkpoint: [u8; 8]) -> Self::Fut {
         self(topic, agg_id, checkpoint)
     }
 }
@@ -154,7 +154,7 @@ where
                                 tokio::spawn(Self::process(
                                     topic,
                                     agg_id,
-                                    u64::MAX,
+                                    [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
                                     loader,
                                     Arc::clone(&stream),
                                     AHashSet::new(),
@@ -179,7 +179,7 @@ where
     async fn process(
         topic: &'static str,
         agg_id: Uuid,
-        checkpoint: u64,
+        checkpoint: [u8; 8],
         loader: impl Load<E>,
         stream: Arc<impl Stream>,
         mut coms: AHashSet<[u8; 16]>,

@@ -52,7 +52,7 @@ impl CommandEnum for AccountCommand {
         self,
         topic: &'static str,
         agg_id: Uuid,
-        checkpoint: u64,
+        checkpoint: [u8; 8],
         mut agg: Self::A,
         coms: &mut ahash::AHashSet<[u8; 16]>,
         loader: impl Load<Self::E>,

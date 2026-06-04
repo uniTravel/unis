@@ -140,7 +140,7 @@ where
         self,
         topic: &'static str,
         agg_id: Uuid,
-        checkpoint: u64,
+        checkpoint: [u8; 8],
         agg: Self::A,
         coms: &mut AHashSet<[u8; 16]>,
         loader: impl Load<Self::E>,
@@ -176,7 +176,7 @@ where
     type Fut: Future<Output = Result<Vec<([u8; 16], E)>, UniError>> + Send;
 
     /// 从存储加载事件流
-    fn load(&self, topic: &'static str, agg_id: Uuid, checkpoint: u64) -> Self::Fut;
+    fn load(&self, topic: &'static str, agg_id: Uuid, checkpoint: [u8; 8]) -> Self::Fut;
 }
 
 /// 配置特征

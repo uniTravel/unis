@@ -193,7 +193,7 @@ pub fn event_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
         async fn replay(
             topic: &'static str,
             agg_id: ::uuid::Uuid,
-            checkpoint: u64,
+            checkpoint: [u8; 8],
             agg: &mut #agg_name,
             coms: &mut ::ahash::AHashSet<[u8; 16]>,
             loader: impl ::unis::domain::Load<#enum_name>,

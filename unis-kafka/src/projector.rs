@@ -7,7 +7,7 @@ use rdkafka::{
     ClientConfig, Message, TopicPartitionList,
     consumer::{Consumer, StreamConsumer},
     error::KafkaError,
-    message::BorrowedMessage,
+    message::{BorrowedMessage, Header, OwnedHeaders},
     producer::{FutureProducer, FutureRecord, Producer, future_producer::Delivery},
 };
 use std::{
@@ -173,7 +173,7 @@ async fn process(
             }
             data = tc.recv() => match data {
                 Ok(msg) => match process_message(&msg) {
-                    Ok((agg_id, com_id, span_id, payload, res)) if res == UniResponse::Success => {
+                    Ok((agg_id, com_id, span_id, revision, payload, res)) if res == UniResponse::Success => {
                         let agg_type = msg.topic().to_owned();
                         let mut topic = String::with_capacity(agg_type.len() + 37);
                         topic.push_str(&agg_type);
@@ -183,14 +183,14 @@ async fn process(
                         let offset = msg.offset();
 
                         match agg_msgs.get_mut(&topic) {
-                            Some(msgs) => msgs.push((com_id, span_id, payload)),
+                            Some(msgs) => msgs.push((com_id, span_id, revision, payload)),
                             None => {
                                 if agg_msgs.len() == cfg_projector.partitions {
                                     process_batch(ap, tc, &mut agg_msgs, &mut offsets, "触及分区数阈值").await?;
                                     last_flush = Instant::now();
                                     count = 0;
                                 }
-                                agg_msgs.insert(topic, vec![(com_id, span_id, payload)]);
+                                agg_msgs.insert(topic, vec![(com_id, span_id, revision, payload)]);
                             }
                         }
 
@@ -222,22 +222,29 @@ async fn process(
 async fn process_batch(
     ap: &FutureProducer,
     tc: &StreamConsumer,
-    agg_msgs: &mut AHashMap<String, Vec<([u8; 16], [u8; 8], Vec<u8>)>>,
+    agg_msgs: &mut AHashMap<String, Vec<([u8; 16], [u8; 8], [u8; 8], Vec<u8>)>>,
     offsets: &mut AHashMap<(String, i32), i64>,
     reason: &str,
 ) -> Result<(), ProjectError> {
     info!("提交批量投影：{reason}");
     let cgm = tc.group_metadata().ok_or(ProjectError::MetadataError)?;
-    let msg_vec: Vec<(String, Vec<([u8; 16], [u8; 8], Vec<u8>)>)> = agg_msgs.drain().collect();
+    let msg_vec: Vec<(String, Vec<([u8; 16], [u8; 8], [u8; 8], Vec<u8>)>)> =
+        agg_msgs.drain().collect();
     let offset_vec: Vec<((String, i32), i64)> = offsets.drain().collect();
     let mut join_set: JoinSet<Result<(), KafkaError>> = JoinSet::new();
 
     ap.begin_transaction()?;
 
     for (topic, msgs) in msg_vec {
-        for (com_id, span_id, payload) in msgs {
+        for (com_id, span_id, revision, payload) in msgs {
             let sp = link_context(info_span!("project"), com_id, span_id);
-            let record = FutureRecord::to(&topic).payload(&payload).key(&com_id);
+            let record = FutureRecord::to(&topic)
+                .payload(&payload)
+                .key(&com_id)
+                .headers(OwnedHeaders::new_with_capacity(1).insert(Header {
+                    key: "revision",
+                    value: Some(&revision),
+                }));
             match ap.send_result(record) {
                 Ok(future) => {
                     join_set.spawn(
@@ -315,12 +322,13 @@ async fn process_batch(
 
 fn process_message(
     msg: &BorrowedMessage<'_>,
-) -> Result<(Uuid, [u8; 16], [u8; 8], Vec<u8>, UniResponse), UniError> {
+) -> Result<(Uuid, [u8; 16], [u8; 8], [u8; 8], Vec<u8>, UniResponse), UniError> {
     let agg_id = crate::get_agg_key(msg)?;
     let headers = msg.headers().ok_or("消息头不存在")?;
     let com_id = crate::get_com_id(headers)?;
     let span_id = crate::get_span_id(headers)?;
+    let revison = crate::get_revision(headers)?;
     let res = crate::get_response(headers)?;
     let payload = msg.payload().ok_or("消息体不存在")?.to_vec();
-    Ok((agg_id, com_id, span_id, payload, res))
+    Ok((agg_id, com_id, span_id, revison, payload, res))
 }

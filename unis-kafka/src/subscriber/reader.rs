@@ -7,8 +7,11 @@ use rkyv::{
     de::Pool,
     rancor::{Error, Strategy},
 };
-use std::{sync::LazyLock, time::SystemTime};
-use tracing::{debug, error};
+use std::{
+    sync::LazyLock,
+    time::{Duration, SystemTime},
+};
+use tracing::{debug, error, info};
 use unis::{
     UniResponse,
     domain::{Config, EventEnum},
@@ -21,13 +24,12 @@ static POOL: LazyLock<ConsumerPool> = LazyLock::new(|| ConsumerPool::new());
 pub async fn load<E>(
     topic: &'static str,
     agg_id: Uuid,
-    checkpoint: u64,
+    checkpoint: [u8; 8],
 ) -> Result<Vec<([u8; 16], E)>, UniError>
 where
     E: EventEnum,
     <E as Archive>::Archived: Deserialize<E, Strategy<Pool, Error>>,
 {
-    let cfg_subscriber = SubscriberConfig::get();
     let topic_agg = super::topic_agg(topic, agg_id);
     let mut tpl = TopicPartitionList::new();
     tpl.add_partition_offset(&topic_agg, 0, rdkafka::Offset::Beginning)
@@ -38,44 +40,56 @@ where
         .assign(&tpl)
         .map_err(|e| UniError::ReadError(e.to_string()))?;
 
-    let (low, high) = consumer
-        .fetch_watermarks(&topic_agg, 0, cfg_subscriber.timeout)
-        .map_err(|e| UniError::ReadError(e.to_string()))?;
-
-    if low == -1 || high == -1 {
-        return Err(UniError::ReadError("未能获取聚合事件流水位数据".to_owned()));
-    }
-
-    if checkpoint != u64::MAX {
-        let cp: i64 = checkpoint
-            .try_into()
-            .map_err(|e| UniError::ReadError(format!("转换检查点出错：{e}")))?;
-        if cp != high - 1 {
-            return Err(UniError::ReadError("检查点匹配失败".to_owned()));
-        }
-    }
-
-    debug!(topic_agg, "开始读取事件流数据");
+    info!(topic_agg, "开始加载事件流数据");
     let mut msgs = Vec::new();
-    loop {
-        match consumer.poll(cfg_subscriber.timeout) {
-            Some(Ok(msg)) => {
-                let payload = msg.payload().ok_or("消息体不存在")?;
-                let com_id = crate::get_com_key(&msg)?;
-                msgs.push((com_id, E::from_bytes(payload)?));
-
-                if msg.offset() + 1 == high {
-                    debug!(topic_agg, "读到 {} 条事件流数据", msgs.len());
+    if checkpoint == [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF] {
+        loop {
+            match consumer.poll(Duration::from_secs(2)) {
+                Some(Ok(msg)) => {
+                    let payload = msg.payload().ok_or("消息体不存在")?;
+                    let com_id = crate::get_com_key(&msg)?;
+                    msgs.push((com_id, E::from_bytes(payload)?));
+                }
+                Some(Err(e)) => {
+                    debug!(topic_agg, error = ?e, "事件流数据错误");
+                    return Err(UniError::ReadError(e.to_string()));
+                }
+                None => {
+                    if msgs.len() == 0 {
+                        debug!(topic_agg, "聚合事件流数据不存在");
+                        return Err(UniError::ReadError("聚合事件流数据不存在".to_owned()));
+                    }
+                    info!(topic_agg, "读取 {} 条事件流数据", msgs.len());
                     break;
                 }
             }
-            Some(Err(e)) => {
-                debug!(topic_agg, error = ?e, "事件流数据错误");
-                return Err(UniError::ReadError(e.to_string()));
-            }
-            None => {
-                debug!(topic_agg, "结束事件流数据读取");
-                return Err(UniError::ReadError("未能读取聚合事件流数据".to_owned()));
+        }
+    } else {
+        loop {
+            match consumer.poll(SubscriberConfig::get().timeout) {
+                Some(Ok(msg)) => {
+                    let payload = msg.payload().ok_or("消息体不存在")?;
+                    let com_id = crate::get_com_key(&msg)?;
+                    let headers = msg.headers().ok_or("消息头不存在")?;
+                    let revision = crate::get_revision(headers)?;
+                    msgs.push((com_id, E::from_bytes(payload)?));
+                    if revision == checkpoint {
+                        info!(topic_agg, "完整读取 {} 条事件流数据", msgs.len());
+                        break;
+                    }
+                }
+                Some(Err(e)) => {
+                    debug!(topic_agg, error = ?e, "事件流数据错误");
+                    return Err(UniError::ReadError(e.to_string()));
+                }
+                None => {
+                    if msgs.len() == 0 {
+                        debug!(topic_agg, "聚合事件流数据不存在");
+                        return Err(UniError::ReadError("聚合事件流数据不存在".to_owned()));
+                    }
+                    debug!(topic_agg, "未能完整读取聚合事件流数据");
+                    return Err(UniError::ReadError("未能完整读取聚合事件流数据".to_owned()));
+                }
             }
         }
     }
@@ -86,10 +100,10 @@ where
 pub(crate) async fn restore(
     topic: &'static str,
     latest: i64,
-) -> Result<AHashMap<Uuid, (u64, AHashSet<[u8; 16]>)>, UniError> {
+) -> Result<AHashMap<Uuid, ([u8; 8], AHashSet<[u8; 16]>)>, UniError> {
     debug!(topic, "开始恢复最近 {latest} 小时的命令操作记录");
     let cfg_subscriber = SubscriberConfig::get();
-    let mut agg_coms: AHashMap<Uuid, (u64, AHashSet<[u8; 16]>)> = AHashMap::new();
+    let mut agg_coms: AHashMap<Uuid, ([u8; 8], AHashSet<[u8; 16]>)> = AHashMap::new();
     let mut tpl = TopicPartitionList::new();
     let mut watermarks = AHashMap::new();
 

@@ -42,7 +42,7 @@ async fn restore_with_coms(#[future(awt)] _init: (), ctx: &'static Context) {
     let (revision, coms) = agg_coms.get(&agg_id).unwrap();
 
     assert!(agg_coms.len() >= 1);
-    assert!(*revision == 3);
+    assert!(u64::from_be_bytes(*revision) == 3);
     assert!(coms.len() == 1);
     ctx.teardown().await;
 }

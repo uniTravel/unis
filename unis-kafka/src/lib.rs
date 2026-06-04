@@ -69,16 +69,15 @@ fn get_trace_flags(headers: &BorrowedHeaders) -> Result<u8, UniError> {
 }
 
 #[inline(always)]
-fn get_revision(headers: &BorrowedHeaders) -> Result<u64, UniError> {
-    let bytes = headers
+fn get_revision(headers: &BorrowedHeaders) -> Result<[u8; 8], UniError> {
+    Ok(headers
         .iter()
         .find(|h| h.key == "revision")
         .ok_or("键为'revision'的消息头不存在")?
         .value
         .ok_or("键'revision'对应的值为空")?
         .try_into()
-        .map_err(|e| format!("提取'revision'失败：{e}"))?;
-    Ok(u64::from_be_bytes(bytes))
+        .map_err(|e| format!("提取'revision'失败：{e}"))?)
 }
 
 #[inline(always)]

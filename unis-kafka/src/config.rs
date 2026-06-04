@@ -17,7 +17,7 @@ fn load_bootstrap(cfg: &::config::Config) -> String {
 fn load_timeout(cfg: &::config::Config) -> Duration {
     match cfg.get("timeout") {
         Ok(t) => Duration::from_secs(t),
-        Err(_) => Duration::from_secs(45),
+        Err(_) => Duration::from_secs(15),
     }
 }
 

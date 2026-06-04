@@ -20,9 +20,9 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/uniTravel/unis"
 
 [workspace.dependencies]
-unis = { version = "0.1.11", path = "./unis" }
-unis-kafka = { version = "0.1.9", path = "./unis-kafka" }
-unis-macros = { version = "0.1.6", path = "./unis-macros" }
+unis = { version = "0.2.0", path = "./unis" }
+unis-kafka = { version = "0.2.0", path = "./unis-kafka" }
+unis-macros = { version = "0.2.0", path = "./unis-macros" }
 unis-utils = { version = "0.1.1", path = "./unis-utils" }
 
 # 基础

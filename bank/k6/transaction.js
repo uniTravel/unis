@@ -3,8 +3,6 @@ import { sleep, check } from 'k6';
 import { uuidv4 } from './lib/k6-utils.js';
 
 export const options = {
-    // vus: 1,
-    // iterations: 1,
     vus: 3,
     duration: '30s',
     thresholds: {

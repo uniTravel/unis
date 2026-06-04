@@ -16,7 +16,8 @@ use uuid::Uuid;
 /// 恢复命令操作记录特征
 pub trait Restore: Send + 'static {
     /// 返回类型
-    type Fut: Future<Output = Result<AHashMap<Uuid, (u64, AHashSet<[u8; 16]>)>, UniError>> + Send;
+    type Fut: Future<Output = Result<AHashMap<Uuid, ([u8; 8], AHashSet<[u8; 16]>)>, UniError>>
+        + Send;
 
     /// 从存储恢复命令操作记录
     fn restore(&self, topic: &'static str, latest: i64) -> Self::Fut;
